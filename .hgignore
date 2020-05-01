@@ -1,5 +1,0 @@
-venv/
-.idea/
-__pycache__/
-autohotkey.py
-obspython.py

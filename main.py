@@ -58,10 +58,10 @@ def timer():
                 obs.obs_source_update(source, new_data)
                 obs.obs_data_release(new_data)
 
-            obs.obs_source_release(source)
+            #obs.obs_source_release(source)
             center_item(scene_item, ahk_window)
             obs.obs_sceneitem_set_order_position(scene_item, len(source_jsons) - 1)
-            obs.obs_sceneitem_release(scene_item)
+            #obs.obs_sceneitem_release(scene_item)
 
 
 def get_ahk_title(window_source):
