@@ -9,9 +9,11 @@ GetWH(win_title, is_regex := False) {
     return % w != ""
 }
 
-ActiveTitle() {
+ActiveWin() {
+    global
     WinGetTitle, title, A
-    return % title
+    WinGetClass, class, A
+    WinGet, state, MinMax, A
 }
 
 WinActiveRegEx(win_title, is_regex := False) {

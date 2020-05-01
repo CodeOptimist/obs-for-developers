@@ -4,6 +4,7 @@ if __name__ != '__main__':
 from autohotkey import Script, AhkExitException
 from datetime import datetime
 from collections import namedtuple
+from win32api import OutputDebugString
 
 
 ahk = Script()
@@ -19,8 +20,9 @@ window_specs = {
     'TortoiseHg Commit': "JobsOfOpportunity - commit:Qt5QWindowIcon:thgw.exe",
     'RimWorld': "RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe",
     'BC Text Compare': "/.*@.* <--> .*@.* - Text Compare - Beyond Compare/:TViewForm:BCompare.exe",
-    #'Steam Workshop': "Steam Workshop #3A#3A Jobs of Opportunity (While You're Up) - Google Chrome:Chrome_WidgetWin_1:chrome.exe",
 }
+
+window_states = dict()
 
 
 def log(func):
@@ -33,6 +35,17 @@ def log(func):
     return wrapper
 
 
+def update_source(source, window, cond=None):
+    data = obs.obs_save_source(source)
+    source_info = json.loads(obs.obs_data_get_json(data))
+    obs.obs_data_release(data)
+    if cond is None or cond(source_info):
+        source_info['settings']['window'] = window
+        new_data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
+        obs.obs_source_update(source, new_data)
+        obs.obs_data_release(new_data)
+
+
 def timer():
     try:
         for name, window_spec in window_specs.items():
@@ -42,18 +55,15 @@ def timer():
                 scene_item = obs.obs_scene_find_sceneitem_by_id(scene, sceneitem_ids[name])
                 source = obs.obs_sceneitem_get_source(scene_item)
 
-                title = ahk.f('ActiveTitle')
-                obs_title = title.replace(':', '#3A')
-                new_window = ":".join([obs_title, ahk_window.class_, ahk_window.exe])
+                ahk.call('ActiveWin')
+                window = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), ahk_window.exe])
+                update_source(source, cond=lambda source_info: source_info['settings']['window'] != window, window=window)
 
-                data = obs.obs_save_source(source)
-                source_info = json.loads(obs.obs_data_get_json(data))
-                obs.obs_data_release(data)
-                if source_info['settings']['window'] != new_window:
-                    source_info['settings']['window'] = new_window
-                    new_data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
-                    obs.obs_source_update(source, new_data)
-                    obs.obs_data_release(new_data)
+                if False:
+                    state = ahk.get('state')
+                    if state != window_states.get(name, state):
+                        obs.timer_add(lambda: update_source(source, window=window) or obs.remove_current_callback(), 2000)
+                    window_states[name] = state
 
                 # obs.obs_source_release(source)
                 center_item(scene_item, ahk_window)
@@ -73,7 +83,7 @@ def get_ahk_window(window_spec):
     is_regex = title.startswith('/') and title.endswith('/')
     if is_regex:
         new_title = new_title[1:-1]
-    ahk_title = new_title + " ahk_class " + class_
+    ahk_title = new_title + " ahk_exe " + exe
     return AhkWindow(ahk_title, title, class_, exe, is_regex)
 
 
@@ -132,7 +142,7 @@ def script_load(settings):
         center_item(scene_item, ahk_window)
         obs.obs_sceneitem_release(scene_item)
 
-    obs.timer_add(timer, 50)
+    obs.timer_add(timer, 1000)
 
 
 @log
