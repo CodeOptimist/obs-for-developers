@@ -11,18 +11,15 @@ ahk = Script()
 AhkWindow = namedtuple('AhkWindow', ['ahk_title', 'title', 'class_', 'exe', 'is_regex'])
 video_info = None
 scene = None
-sceneitem_ids = dict()
 
-window_specs = {
-    'Visual Studio': "RimMods - Microsoft Visual Studio:HwndWrapper[DefaultDomain;;f1776b62-97a2-4920-9344-4a8e003b5404]:devenv.exe",
-    'dnSpy': "dnSpy v6.0.5 (64-bit):HwndWrapper[dnSpy.exe;;dcb937d0-a05d-4507-8a73-c965d495a0ce]:dnSpy.exe",
-    'TortoiseHg Workbench': "JobsOfOpportunity - TortoiseHg Workbench:Qt5QWindowIcon:thgw.exe",
-    'TortoiseHg Commit': "JobsOfOpportunity - commit:Qt5QWindowIcon:thgw.exe",
-    'RimWorld': "RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe",
-    'BC Text Compare': "/.*@.* <--> .*@.* - Text Compare - Beyond Compare/:TViewForm:BCompare.exe",
+windows = {
+    'Visual Studio': {'spec': "RimMods - Microsoft Visual Studio:HwndWrapper[DefaultDomain;;f1776b62-97a2-4920-9344-4a8e003b5404]:devenv.exe"},
+    'dnSpy': {'spec': "dnSpy v6.0.5 (64-bit):HwndWrapper[dnSpy.exe;;dcb937d0-a05d-4507-8a73-c965d495a0ce]:dnSpy.exe"},
+    'TortoiseHg Workbench': {'spec': "JobsOfOpportunity - TortoiseHg Workbench:Qt5QWindowIcon:thgw.exe"},
+    'TortoiseHg Commit': {'spec': "JobsOfOpportunity - commit:Qt5QWindowIcon:thgw.exe"},
+    'RimWorld': {'spec': "RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe"},
+    'BC Text Compare': {'spec': "/.*@.* <--> .*@.* - Text Compare - Beyond Compare/:TViewForm:BCompare.exe"},
 }
-
-window_states = dict()
 
 
 def log(func):
@@ -35,12 +32,12 @@ def log(func):
     return wrapper
 
 
-def update_source(source, window, cond=None):
+def update_source(source, spec, cond=None):
     data = obs.obs_save_source(source)
     source_info = json.loads(obs.obs_data_get_json(data))
     obs.obs_data_release(data)
     if cond is None or cond(source_info):
-        source_info['settings']['window'] = window
+        source_info['settings']['window'] = spec
         new_data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
         obs.obs_source_update(source, new_data)
         obs.obs_data_release(new_data)
@@ -48,26 +45,26 @@ def update_source(source, window, cond=None):
 
 def timer():
     try:
-        for name, window_spec in window_specs.items():
-            ahk_window = get_ahk_window(window_spec)
+        for name, window in windows.items():
+            ahk_window = get_ahk_window(window['spec'])
 
             if ahk.f('WinActiveRegEx', ahk_window.ahk_title, ahk_window.is_regex):
-                scene_item = obs.obs_scene_find_sceneitem_by_id(scene, sceneitem_ids[name])
+                scene_item = obs.obs_scene_find_sceneitem_by_id(scene, window['sceneitem_id'])
                 source = obs.obs_sceneitem_get_source(scene_item)
 
                 ahk.call('ActiveWin')
-                window = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), ahk_window.exe])
-                update_source(source, cond=lambda source_info: source_info['settings']['window'] != window, window=window)
+                spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), ahk_window.exe])
+                update_source(source, cond=lambda source_info: source_info['settings']['window'] != spec, spec=spec)
 
-                if False:
-                    state = ahk.get('state')
-                    if state != window_states.get(name, state):
-                        obs.timer_add(lambda: update_source(source, window=window) or obs.remove_current_callback(), 2000)
-                    window_states[name] = state
+                # todo AHK can't detect minimized & restore, crap https://autohotkey.com/board/topic/94409-detect-minimized-windows/
+                state = ahk.get('state')
+                if state != window.get('state', state):
+                    obs.timer_add(lambda: update_source(source, spec=spec) or obs.remove_current_callback(), 2500)
+                window['state'] = state
 
                 # obs.obs_source_release(source)
                 center_item(scene_item, ahk_window)
-                obs.obs_sceneitem_set_order_position(scene_item, len(window_specs) - 1)
+                obs.obs_sceneitem_set_order_position(scene_item, len(windows) - 1)
                 # obs.obs_sceneitem_release(scene_item)
     except AhkExitException as ex:
         obs.timer_remove(timer)
@@ -127,22 +124,22 @@ def script_load(settings):
     scene = obs.obs_scene_from_source(obs.obs_get_source_by_name("Scene 1"))
     wipe_scene()
 
-    for name, window_spec in window_specs.items():
-        source_info = {'id': 'window_capture', 'name': name, 'settings': {'method': 2, 'priority': 1, 'window': window_spec}}
+    for name, window in windows.items():
+        source_info = {'id': 'window_capture', 'name': name, 'settings': {'method': 2, 'priority': 1, 'window': window['spec']}}
         data = obs.obs_data_create_from_json(json.dumps(source_info))
         source = obs.obs_load_source(data)
         obs.obs_data_release(data)
 
         scene_item = obs.obs_scene_add(scene, source)
         obs.obs_source_release(source)
-        sceneitem_ids[name] = obs.obs_sceneitem_get_id(scene_item)
+        window['sceneitem_id'] = obs.obs_sceneitem_get_id(scene_item)
         obs.obs_sceneitem_set_locked(scene_item, True)
 
-        ahk_window = get_ahk_window(window_spec)
+        ahk_window = get_ahk_window(window['spec'])
         center_item(scene_item, ahk_window)
         obs.obs_sceneitem_release(scene_item)
 
-    obs.timer_add(timer, 1000)
+    obs.timer_add(timer, 50)
 
 
 @log
