@@ -10,23 +10,17 @@ ahk = Script()
 AhkWindow = namedtuple('AhkWindow', ['ahk_title', 'title', 'class_', 'exe', 'is_regex'])
 video_info = None
 scene = None
-source_jsons = dict()
-window_sceneitem_ids = dict()
+sceneitem_ids = dict()
 
-
-# scoped to avoid unwanted global variables
-def init():
-    specs = {
-        'Visual Studio': "RimMods - Microsoft Visual Studio:HwndWrapper[DefaultDomain;;f1776b62-97a2-4920-9344-4a8e003b5404]:devenv.exe",
-        'dnSpy': "dnSpy v6.0.5 (64-bit):HwndWrapper[dnSpy.exe;;dcb937d0-a05d-4507-8a73-c965d495a0ce]:dnSpy.exe",
-        'TortoiseHg Workbench': "JobsOfOpportunity - TortoiseHg Workbench:Qt5QWindowIcon:thgw.exe",
-        'TortoiseHg Commit': "JobsOfOpportunity - commit:Qt5QWindowIcon:thgw.exe",
-        'RimWorld': "RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe",
-        'BC Text Compare': "/.*@.* <--> .*@.* - Text Compare - Beyond Compare/:TViewForm:BCompare.exe",
-    }
-
-    for name, spec in specs.items():
-        source_jsons[name] = {'id': 'window_capture', 'name': name, 'settings': {'method': 2, 'priority': 1, 'window': specs[name]}}
+window_specs = {
+    'Visual Studio': "RimMods - Microsoft Visual Studio:HwndWrapper[DefaultDomain;;f1776b62-97a2-4920-9344-4a8e003b5404]:devenv.exe",
+    'dnSpy': "dnSpy v6.0.5 (64-bit):HwndWrapper[dnSpy.exe;;dcb937d0-a05d-4507-8a73-c965d495a0ce]:dnSpy.exe",
+    'TortoiseHg Workbench': "JobsOfOpportunity - TortoiseHg Workbench:Qt5QWindowIcon:thgw.exe",
+    'TortoiseHg Commit': "JobsOfOpportunity - commit:Qt5QWindowIcon:thgw.exe",
+    'RimWorld': "RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe",
+    'BC Text Compare': "/.*@.* <--> .*@.* - Text Compare - Beyond Compare/:TViewForm:BCompare.exe",
+    #'Steam Workshop': "Steam Workshop #3A#3A Jobs of Opportunity (While You're Up) - Google Chrome:Chrome_WidgetWin_1:chrome.exe",
+}
 
 
 def log(func):
@@ -41,28 +35,29 @@ def log(func):
 
 def timer():
     try:
-        for name, source_json in source_jsons.items():
-            ahk_window = get_ahk_title(source_json)
+        for name, window_spec in window_specs.items():
+            ahk_window = get_ahk_window(window_spec)
 
             if ahk.f('WinActiveRegEx', ahk_window.ahk_title, ahk_window.is_regex):
-                scene_item = obs.obs_scene_find_sceneitem_by_id(scene, window_sceneitem_ids[name])
+                scene_item = obs.obs_scene_find_sceneitem_by_id(scene, sceneitem_ids[name])
                 source = obs.obs_sceneitem_get_source(scene_item)
+
                 title = ahk.f('ActiveTitle')
                 obs_title = title.replace(':', '#3A')
                 new_window = ":".join([obs_title, ahk_window.class_, ahk_window.exe])
 
                 data = obs.obs_save_source(source)
-                source_json = json.loads(obs.obs_data_get_json(data))
+                source_info = json.loads(obs.obs_data_get_json(data))
                 obs.obs_data_release(data)
-                if source_json['settings']['window'] != new_window:
-                    source_json['settings']['window'] = new_window
-                    new_data = obs.obs_data_create_from_json(json.dumps(source_json['settings']))
+                if source_info['settings']['window'] != new_window:
+                    source_info['settings']['window'] = new_window
+                    new_data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
                     obs.obs_source_update(source, new_data)
                     obs.obs_data_release(new_data)
 
                 # obs.obs_source_release(source)
                 center_item(scene_item, ahk_window)
-                obs.obs_sceneitem_set_order_position(scene_item, len(source_jsons) - 1)
+                obs.obs_sceneitem_set_order_position(scene_item, len(window_specs) - 1)
                 # obs.obs_sceneitem_release(scene_item)
     except AhkExitException as ex:
         obs.timer_remove(timer)
@@ -70,9 +65,8 @@ def timer():
         return
 
 
-def get_ahk_title(window_source):
-    settings_ = window_source['settings']
-    title, class_, exe = settings_['window'].split(':')
+def get_ahk_window(window_spec):
+    title, class_, exe = window_spec.split(':')
     regex = re.compile(r'#[\dA-F]{2}')
     # replace things like #3A with :
     new_title = regex.sub(lambda m: m.group().replace(m.group(), bytes.fromhex(m.group()[1:]).decode('utf-8')), title)
@@ -123,16 +117,18 @@ def script_load(settings):
     scene = obs.obs_scene_from_source(obs.obs_get_source_by_name("Scene 1"))
     wipe_scene()
 
-    for name, source_json in source_jsons.items():
-        data = obs.obs_data_create_from_json(json.dumps(source_json))
+    for name, window_spec in window_specs.items():
+        source_info = {'id': 'window_capture', 'name': name, 'settings': {'method': 2, 'priority': 1, 'window': window_spec}}
+        data = obs.obs_data_create_from_json(json.dumps(source_info))
         source = obs.obs_load_source(data)
         obs.obs_data_release(data)
+
         scene_item = obs.obs_scene_add(scene, source)
         obs.obs_source_release(source)
-        window_sceneitem_ids[name] = obs.obs_sceneitem_get_id(scene_item)
+        sceneitem_ids[name] = obs.obs_sceneitem_get_id(scene_item)
         obs.obs_sceneitem_set_locked(scene_item, True)
 
-        ahk_window = get_ahk_title(source_json)
+        ahk_window = get_ahk_window(window_spec)
         center_item(scene_item, ahk_window)
         obs.obs_sceneitem_release(scene_item)
 
@@ -148,5 +144,3 @@ def script_unload():
 def script_description():
     return "Python & AutoHotkey powered OBS."
 
-
-init()
