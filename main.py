@@ -1,23 +1,47 @@
-import json, re, yaml, os
+# https://obsproject.com/docs/scripting.html
+# https://obsproject.com/docs/reference-core.html
+# https://obsproject.com/docs/reference-scenes.html
+# https://obsproject.com/docs/reference-sources.html
+import json
+import re
+
+import yaml
+
 if __name__ != '__main__':
+    # noinspection PyUnresolvedReferences
     import obspython as obs
-from autohotkey import Script, AhkExitException
+# noinspection PyUnresolvedReferences
+from ahkunwrapped import Script, AhkException
 from datetime import datetime
-from collections import namedtuple
+from pathlib import Path
+from typing import NamedTuple
+# noinspection PyUnresolvedReferences
 from win32api import OutputDebugString
 
+class VideoInfo(NamedTuple):
+    base_width: int
+    base_height: int
+
+
+class AhkWindowSpec(NamedTuple):
+    win_title: str
+    is_re: bool
+    title: str
+    class_: str
+    exe: str
+
+
 # globals are reset on reload
-AhkWindowSpec = namedtuple('AhkWindowSpec', ['win_title', 'is_re', 'title', 'class_', 'exe'])
-ahk = None
-video_info = None
-loaded = None
+ahk: Script
+loaded: dict
+video_info: VideoInfo
 
 
 def init():
     global loaded
     # don't use os.chdir() or it will break OBS
-    data_path = r'C:\Dropbox\Python\obs\captures.yaml'
-    with open(data_path, encoding='utf-8') as f:
+    data_path = Path(r'C:\Dropbox\Python\obs\captures.yaml')
+    with data_path.open(encoding='utf-8') as f:
         loaded = yaml.safe_load(f)
 
 
@@ -47,7 +71,7 @@ def update_source(source, obs_spec, cond=None):
 def timer():
     try:
         update_active_win_sources()
-    except AhkExitException:
+    except Exception:
         obs.remove_current_callback()
         raise
 
@@ -64,6 +88,8 @@ def update_active_win_sources():
         ahk_window = loaded['ahk_windows'][scene_window_name]
         ahk_spec = ahk_window['spec']
 
+        # if 'Debug' in ahk_spec.win_title:
+        #     print(ahk_spec.win_title)
         if ahk.f('WinActiveRegEx', ahk_spec.win_title, ahk_spec.is_re):
             sceneitem = obs.obs_scene_find_sceneitem_by_id(cur_scene, scene_window['sceneitem_id'])
             source = obs.obs_sceneitem_get_source(sceneitem)
@@ -84,14 +110,17 @@ def update_active_win_sources():
 
 def get_ahk_spec(window_spec):
     title, class_, exe = window_spec.split(':')
-    regex = re.compile(r'#[\dA-F]{2}')
+
     # replace things like #3A with :
+    # regex = re.compile(r'#[\dA-F]{2}')
     # new_title = regex.sub(lambda m: m.group().replace(m.group(), bytes.fromhex(m.group()[1:]).decode('utf-8')), title)
     new_title = title.replace('#3A', ':')
+
     is_re = title.startswith('/') and title.endswith('/')
     if is_re:
-        new_title = new_title[1:-1]
-    win_title = new_title + " ahk_exe " + exe
+        win_title = f'{new_title[1:-1]} ahk_exe {re.escape(exe)}'
+    else:
+        win_title = f'{new_title} ahk_exe {exe}'
     return AhkWindowSpec(win_title, is_re, title, class_, exe)
 
 
@@ -107,6 +136,7 @@ def center_item(sceneitem, ahk_spec):
 
 
 def get_scene_by_name(scene_name):
+    sources = None
     try:
         sources = obs.obs_frontend_get_scenes()
         for source in sources:
@@ -119,16 +149,23 @@ def get_scene_by_name(scene_name):
 
 
 def wipe_scene(scene):
+    global_scene = get_scene_by_name("Global")
     sceneitems = obs.obs_scene_enum_items(scene)
     for sceneitem in sceneitems:
         obs.obs_sceneitem_remove(sceneitem)
         source = obs.obs_sceneitem_get_source(sceneitem)
-        obs.obs_source_remove(source)
+        source_name = obs.obs_source_get_name(source)
+        if obs.obs_scene_find_source(global_scene, source_name) is None:
+            obs.obs_source_remove(source)
     obs.sceneitem_list_release(sceneitems)
 
 
 @log
 def scenes_loaded():
+    global_scene = get_scene_by_name("Global")
+    global_camera_sceneitem = obs.obs_scene_find_source(global_scene, "Camera")
+    camera_source = obs.obs_sceneitem_get_source(global_camera_sceneitem)
+
     for scene_name, scene_windows in loaded['scenes'].items():
         scene = get_scene_by_name(scene_name)
 
@@ -156,6 +193,20 @@ def scenes_loaded():
             # global (not scene-specific) ahk window data
             loaded.setdefault('ahk_windows', {})[window_name] = {'spec': ahk_spec}
 
+        camera_sceneitem = obs.obs_scene_add(scene, camera_source)
+        camera_scale = obs.vec2()
+        camera_scale.x = 0.5
+        camera_scale.y = 0.5
+        obs.obs_sceneitem_set_scale(camera_sceneitem, camera_scale)
+        obs_align_right = 2
+        obs_align_bottom = 8
+        obs.obs_sceneitem_set_alignment(camera_sceneitem, obs_align_right | obs_align_bottom)
+        camera_pos = obs.vec2()
+        camera_pos.x = video_info.base_width
+        camera_pos.y = video_info.base_height
+        obs.obs_sceneitem_set_pos(camera_sceneitem, camera_pos)
+        obs.obs_sceneitem_set_locked(camera_sceneitem, True)
+
         if creating_scene:
             obs.obs_scene_release(scene)
 
@@ -166,7 +217,7 @@ def scenes_loaded():
 def script_load(settings):
     global ahk, video_info
     init()
-    ahk = Script.from_file(r'script.ahk')
+    ahk = Script.from_file(Path(r'C:\Dropbox\Python\obs\script.ahk'))
 
     video_info = obs.obs_video_info()
     obs.obs_get_video_info(video_info)
@@ -182,7 +233,7 @@ def wait_for_load():
 @log
 def script_unload():
     obs.timer_remove(wait_for_load)
-    if ahk is not None: # None if failed to load
+    if ahk is not None:  # None if failed to load
         ahk.exit()
 
 
