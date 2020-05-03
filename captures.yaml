@@ -1,0 +1,7 @@
+---
+scenes:
+  'RimWorld': &rw
+    'Visual Studio': {'spec': "RimMods - Microsoft Visual Studio:HwndWrapper[DefaultDomain;;f1776b62-97a2-4920-9344-4a8e003b5404]:devenv.exe"}
+    'dnSpy': {'spec': "dnSpy v6.0.5 (64-bit):HwndWrapper[dnSpy.exe;;dcb937d0-a05d-4507-8a73-c965d495a0ce]:dnSpy.exe"}
+    'RimWorld': {'spec': "RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe"}
+    'BC Text Compare': {'spec': "/.*@.* <--> .*@.* - Text Compare - Beyond Compare/:TViewForm:BCompare.exe"}
