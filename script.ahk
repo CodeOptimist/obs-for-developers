@@ -2,14 +2,14 @@
 #SingleInstance force
 
 
-GetWH(win_title, is_regex := False) {
+WinGetWH(win_title, is_regex := False) {
     global
     SetTitleMatchMode, % is_regex ? "RegEx" : "1"
     WinGetPos, _, _, w, h, %win_title%
     return % w != ""
 }
 
-ActiveWin() {
+ActiveWinGet() {
     global
     WinGetTitle, title, A
     WinGetClass, class, A
