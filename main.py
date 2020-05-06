@@ -6,7 +6,6 @@ from datetime import datetime
 from collections import namedtuple
 from win32api import OutputDebugString
 
-os.chdir(r'C:\Dropbox\Python\obs')
 # globals are reset on reload
 AhkWindowSpec = namedtuple('AhkWindowSpec', ['win_title', 'is_re', 'title', 'class_', 'exe'])
 ahk = None
@@ -16,7 +15,9 @@ loaded = None
 
 def init():
     global loaded
-    with open(r'captures.yaml', encoding='utf-8') as f:
+    # don't use os.chdir() or it will break OBS
+    data_path = r'C:\Dropbox\Python\obs\captures.yaml'
+    with open(data_path, encoding='utf-8') as f:
         loaded = yaml.safe_load(f)
 
 
@@ -36,6 +37,7 @@ def update_source(source, obs_spec, cond=None):
     source_info = json.loads(obs.obs_data_get_json(data))
     obs.obs_data_release(data)
     if cond is None or cond(source_info):
+        print("Updating source to {obs_spec}".format(**locals()))
         source_info['settings']['window'] = obs_spec
         new_data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
         obs.obs_source_update(source, new_data)
