@@ -91,9 +91,6 @@ def update_active_win_sources() -> None:
     windows = window_sceneitems[cur_scene_name]
     for window_name, window_sceneitem in window_sceneitems[cur_scene_name].items():
         if ahk.f('WinActiveRegEx', window_sceneitem.win_title, window_sceneitem.is_re):
-            ahk.call('ActiveWinGet')
-            obs_spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), ahk.get('exe')])
-
             def update_source(source: Source, obs_spec: str, cond: Callable = None) -> None:
                 data: Data = obs.obs_save_source(source)
                 source_info = json.loads(obs.obs_data_get_json(data))
@@ -105,12 +102,14 @@ def update_active_win_sources() -> None:
                     obs.obs_source_update(source, new_data)
                     obs.obs_data_release(new_data)
 
+            ahk.call('ActiveWinGet')
+            obs_spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), ahk.get('exe')])
             source: Source = obs.obs_sceneitem_get_source(window_sceneitem.sceneitem)
             update_source(source, obs_spec, cond=lambda source_info: source_info['settings']['window'] != obs_spec)
 
             # todo AHK can't detect minimized & restore, crap https://autohotkey.com/board/topic/94409-detect-minimized-windows/
             state = ahk.get('state')
-            if state != (window_sceneitem.state or state):
+            if window_sceneitem.state is None or state != window_sceneitem.state:
                 obs.timer_add(lambda: update_source(source, obs_spec) or obs.remove_current_callback(), 2500)
             window_sceneitem.state = state
 

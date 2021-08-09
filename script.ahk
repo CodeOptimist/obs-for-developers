@@ -4,7 +4,7 @@
 
 WinGetWH(win_title, is_regex) {
     global
-    SetTitleMatchMode, % is_regex ? "RegEx" : "1"
+    SetTitleMatchMode, % is_regex ? "RegEx" : "3"
     WinGetPos, _, _, w, h, % win_title
     return w != ""
 }
