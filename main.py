@@ -73,16 +73,6 @@ class Window:
         if self.exe:
             self.re_win_title += f" ahk_exe {r(self.exe)}"
 
-    def center(self) -> None:
-        if not ahk.f('WinGetWH', self.re_win_title):
-            print(f"Matchless {self}")
-            return
-
-        vec2: Vec2 = obs.vec2()
-        vec2.x = video_info.base_width / 2 - ahk.get('w') / 2
-        vec2.y = video_info.base_height / 2 - ahk.get('h') / 2
-        obs.obs_sceneitem_set_pos(self.sceneitem, vec2)
-
     def obs_spec(self) -> str:
         ahk.call('WinGet', self.re_win_title)
 
@@ -139,7 +129,6 @@ def update_active_win_sources() -> None:
                 # obs.timer_add(partial(do_update_source, window), 2500)
             window.min_max = min_max
 
-            # window.center()
             obs.obs_sceneitem_set_order_position(window.sceneitem, len(scene_windows) - 1)
             obs.obs_sceneitem_set_visible(window.sceneitem, True)
             window.exists = True
@@ -196,6 +185,13 @@ def scenes_loaded() -> None:
         group_scene = obs.obs_sceneitem_group_get_scene(group)
         wipe_group(group, group_scene)
 
+        obs.obs_sceneitem_set_visible(group, False)
+        obs.obs_sceneitem_set_locked(group, True)
+        vec2: Vec2 = obs.vec2()
+        vec2.x = video_info.base_width / 2
+        vec2.y = video_info.base_height / 2
+        obs.obs_sceneitem_set_pos(group, vec2)
+
         for idx, (window_name, window_spec) in enumerate(scene_windows.items()):
             if isinstance(window_spec, str):
                 window_spec = {'window': window_spec}
@@ -223,8 +219,11 @@ def scenes_loaded() -> None:
             # hide by default as could be an unintentional capture
             obs.obs_sceneitem_set_visible(sceneitem, False)
             obs.obs_sceneitem_set_locked(sceneitem, True)
-            window.center()
+            OBS_ALIGN_CENTER = 0
+            obs.obs_sceneitem_set_alignment(sceneitem, OBS_ALIGN_CENTER)
             windows[scene_name][window_name] = window
+
+        obs.obs_sceneitem_set_visible(group, True)
 
     def timer() -> None:
         try:
