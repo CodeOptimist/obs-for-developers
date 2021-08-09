@@ -19,7 +19,7 @@ from typing import NamedTuple
 # noinspection PyUnresolvedReferences
 from win32api import OutputDebugString
 from dataclasses import dataclass
-from typing import Dict, NewType, Optional, Iterable
+from typing import Dict, NewType, Optional, Iterable, Callable
 from collections import defaultdict
 
 class VideoInfo(NamedTuple):
@@ -61,7 +61,7 @@ class SceneItemWindow:
         else:
             self.win_title: str = f'{new_title} ahk_exe {self.exe}'
 
-    def center(self):
+    def center(self) -> None:
         if not ahk.f('WinGetWH', self.win_title, self.is_re):
             print(f"Matchless {self}")
             return
@@ -79,7 +79,7 @@ window_sceneitems: Dict[str, Dict[str, SceneItemWindow]] = defaultdict(defaultdi
 video_info: VideoInfo
 
 
-def init():
+def init() -> None:
     global loaded
     # don't use os.chdir() or it will break OBS
     data_path = Path(r'C:\Dropbox\Python\obs\captures.yaml')
@@ -87,7 +87,7 @@ def init():
         loaded = yaml.safe_load(f)
 
 
-def log(func):
+def log(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         before: int = obs.bnum_allocs()
         result = func(*args, **kwargs)
@@ -98,7 +98,7 @@ def log(func):
     return wrapper
 
 
-def update_source(source, obs_spec, cond=None):
+def update_source(source: Source, obs_spec: str, cond: Callable = None) -> None:
     data: Data = obs.obs_save_source(source)
     source_info = json.loads(obs.obs_data_get_json(data))
     obs.obs_data_release(data)
@@ -110,7 +110,7 @@ def update_source(source, obs_spec, cond=None):
         obs.obs_data_release(new_data)
 
 
-def timer():
+def timer() -> None:
     try:
         update_active_win_sources()
     except Exception:
@@ -118,7 +118,7 @@ def timer():
         raise
 
 
-def update_active_win_sources():
+def update_active_win_sources() -> None:
     cur_scene_source: Source = obs.obs_frontend_get_current_scene()
     # cur_scene: Scene = obs.obs_scene_from_source(cur_scene_source)
     cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
@@ -144,10 +144,10 @@ def update_active_win_sources():
             obs.obs_sceneitem_set_order_position(window_sceneitem.sceneitem, len(windows) - 1)
 
 
-def get_scene_by_name(scene_name):
-    sources = None
+def get_scene_by_name(scene_name: str) -> Optional[Scene]:
+    sources = ()
     try:
-        sources: Optional[Iterable[Source]] = obs.obs_frontend_get_scenes()
+        sources: Iterable[Source] = obs.obs_frontend_get_scenes()
         for source in sources:
             name: str = obs.obs_source_get_name(source)
             if name == scene_name:
@@ -158,9 +158,9 @@ def get_scene_by_name(scene_name):
 
 
 @log
-def scenes_loaded():
+def scenes_loaded() -> None:
     global_scene = get_scene_by_name("Global")
-    global_sceneitems: Optional[Iterable[SceneItem]] = obs.obs_scene_enum_items(global_scene)
+    global_sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(global_scene)
     global_count = sum(1 for _ in global_sceneitems)
     obs.sceneitem_list_release(global_sceneitems)
     print(f"Global count is: {global_count}")
@@ -174,8 +174,8 @@ def scenes_loaded():
             OBS_SCENE_DUP_REFS = 0
             scene: Scene = obs.obs_scene_duplicate(global_scene, scene_name, OBS_SCENE_DUP_REFS)
         else:
-            def wipe_scene(scene):
-                sceneitems: Optional[Iterable[SceneItem]] = obs.obs_scene_enum_items(scene)
+            def wipe_scene(scene: Scene) -> None:
+                sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(scene)
                 for sceneitem in sceneitems:
                     obs.obs_sceneitem_remove(sceneitem)
                     source: Source = obs.obs_sceneitem_get_source(sceneitem)
@@ -188,7 +188,8 @@ def scenes_loaded():
 
         for idx, (window_name, window_spec) in enumerate(scene_windows.items()):
             # we set 'window' here for the cosmetic name within OBS; OBS doesn't actually support regex, that's our own addition
-            source_info = {'id': 'window_capture', 'name': window_name, 'settings': {'method': 2, 'priority': 1, 'window': window_spec}}
+            source_info = {'id': 'window_capture', 'name': window_name,
+                           'settings': {'method': 2, 'priority': 1, 'window': window_spec}}
             data: Data = obs.obs_data_create_from_json(json.dumps(source_info))
             source: Source = obs.obs_load_source(data)
             obs.obs_data_release(data)
@@ -209,31 +210,31 @@ def scenes_loaded():
 
 
 @log
-def script_load(settings):
+def script_load(settings) -> None:
     global ahk, video_info
     init()
     ahk = Script.from_file(Path(r'C:\Dropbox\Python\obs\script.ahk'))
 
-    video_info: VideoInfo = obs.obs_video_info()
+    video_info = obs.obs_video_info()
     obs.obs_get_video_info(video_info)
     obs.timer_add(wait_for_load, 1000)
 
 
 # checking scenes with obs_frontend_get_scene_names() still wouldn't tell us if all the scene items were loaded
-def wait_for_load():
+def wait_for_load() -> None:
     obs.remove_current_callback()
     scenes_loaded()
 
 
 @log
-def script_unload():
+def script_unload() -> None:
     obs.timer_remove(wait_for_load)
     if ahk is not None:  # None if failed to load
         ahk.exit()
 
 
-def script_description():
-    return "Python & AutoHotkey powered OBS."
+def script_description() -> str:
+    return "ahkUnwrapped powered OBS."
 
 
 if __name__ == '__main__':
