@@ -2,16 +2,21 @@
 scene_pool:
   All: &all
     'Command Palette': 'Command Palette:AutoHotkeyGUI:AutoHotkey.exe'
+#    'reMarkable': 'reMarkable - Share:Qt5150QWindowOwnDCIcon:reMarkable.exe'
   PyCharm: &pycharm
     'OBS PyCharm': '/obs – .*/:SunAwtFrame:pycharm64.exe'
     'ahkUnwrapped PyCharm': '/ahkUnwrapped – .*/:SunAwtFrame:pycharm64.exe'
     'RW PyCharm': '/rimworld-mod-description-tool – .*/:SunAwtFrame:pycharm64.exe'
     'Palette PyCharm': '/command-palette – .*/:SunAwtFrame:pycharm64.exe'
+    'DocSearch PyCharm': '/document-search – .*/:SunAwtFrame:pycharm64.exe'
   'Dev': &dev
     'Sourcetree': {window: 'Sourcetree::SourceTree.exe', fallback: exe}
+    # separate so can layer on top of Sourcetree (if not maximized)
+    'Sourcetree2': {window: '/(Log|Blame)#3A .*/::SourceTree.exe', fallback: exe}
+    'MINGW32': '/MINGW32#3A.*/Dropbox/.*/:mintty:mintty.exe'
     'dnSpy': '/dnSpy v\S+ \(64-bit, \.NET\)/::dnSpy.exe'
     'DebugView': '/\[(Capture Win32|Paused)\] - DebugView\+\+/::DebugView++.exe'
-    'Beyond Compare': '/(.* <--> .*|Text Compare) - Beyond Compare/:TViewForm:BCompare.exe'
+    'Beyond Compare': '/(.* <--> .*|Text Compare|Text Merge) - Beyond Compare/:TViewForm:BCompare.exe'
     'Visual Studio Code': '/.* - Visual Studio Code/:Chrome_WidgetWin_1:Code.exe'
   'RimWorld': &rw
     'RW Studio': 'RimMods - Microsoft Visual Studio::devenv.exe'

@@ -6,6 +6,7 @@
 
 import json
 import re
+from contextlib import suppress
 
 import yaml
 
@@ -13,7 +14,7 @@ if __name__ != '__main__':
     # noinspection PyUnresolvedReferences
     import obspython as obs
 # noinspection PyUnresolvedReferences
-from ahkunwrapped import Script, AhkException
+from ahkunwrapped import Script, AhkExitException
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -22,7 +23,6 @@ from win32api import OutputDebugString
 from dataclasses import dataclass, field
 from typing import Dict, NewType, Optional, Iterable, Callable
 from collections import defaultdict
-from functools import partial
 
 class VideoInfo(NamedTuple):
     # and many more
@@ -45,7 +45,6 @@ Data = NewType('Data', object)
 class Window:
     # determines print() display order
     exists: bool
-    min_max: Optional[str]
     priority: int
     title: str
     class_: str
@@ -56,10 +55,9 @@ class Window:
 
     def __init__(self, window_spec: dict) -> None:
         self.exists = False
-        self.min_max = None
-        self.priority = ({'title': 1, 'type': 0, 'exe': 2}[window_spec.get('fallback', 'title')])
+        self.priority = {'title': 1, 'type': 0, 'exe': 2}[window_spec.get('fallback', 'title')]
 
-        # just use for win_title
+        # just used for win_title
         def r(text: str) -> str:
             result = text.replace('#3A', ':')
             is_re = result.startswith('/') and result.endswith('/')
@@ -103,13 +101,14 @@ def update_active_win_sources() -> None:
             obs.obs_sceneitem_set_visible(window.sceneitem, False)
             window.exists = False
 
-        def update_source(window, force=False) -> None:
+        if ahk.f('WinActive', window.re_win_title):
             data: Data = obs.obs_save_source(window.source)
             source_info = json.loads(obs.obs_data_get_json(data))
             obs.obs_data_release(data)
 
             obs_spec = window.obs_spec()
-            if force or source_info['settings']['window'] != obs_spec:
+            # always true on first window activation since we left 'type' empty
+            if source_info['settings']['window'] != obs_spec:
                 print(f"Updating source to {obs_spec}")
                 source_info['settings']['window'] = obs_spec
                 source_info['settings']['priority'] = window.priority
@@ -117,24 +116,13 @@ def update_active_win_sources() -> None:
                 obs.obs_source_update(window.source, new_data)
                 obs.obs_data_release(new_data)
 
-        if ahk.f('WinActive', window.re_win_title):
-            update_source(window)
-
-            # todo AHK can't detect minimized & restore, crap https://autohotkey.com/board/topic/94409-detect-minimized-windows/
-            min_max = ahk.get('min_max')
-            if min_max != window.min_max:
-                def do_update_source(window):
-                    update_source(window, force=True)
-                    obs.remove_current_callback()
-                # obs.timer_add(partial(do_update_source, window), 2500)
-            window.min_max = min_max
-
             obs.obs_sceneitem_set_order_position(window.sceneitem, len(scene_windows) - 1)
             obs.obs_sceneitem_set_visible(window.sceneitem, True)
             window.exists = True
 
 
 def log(func: Callable) -> Callable:
+    # noinspection PyMissingTypeHints
     def wrapper(*args, **kwargs):
         before: int = obs.bnum_allocs()
         result = func(*args, **kwargs)
@@ -145,8 +133,22 @@ def log(func: Callable) -> Callable:
     return wrapper
 
 
+def timer() -> None:
+    try:
+        update_active_win_sources()
+    except AhkExitException:
+        obs.remove_current_callback()
+    except Exception:
+        obs.remove_current_callback()
+        raise
+
+
+OBS_ALIGN_CENTER = 0
+
+
 @log
 def scenes_loaded() -> None:
+    # noinspection PyShadowingNames
     def get_scene_by_name(scene_name: str) -> Optional[Scene]:
         sources = ()
         try:
@@ -159,11 +161,11 @@ def scenes_loaded() -> None:
         finally:
             obs.source_list_release(sources)
 
-    global_scene = get_scene_by_name("Global")
-    global_sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(global_scene)
-    global_count = sum(1 for _ in global_sceneitems)
-    obs.sceneitem_list_release(global_sceneitems)
-    print(f"Global count is: {global_count}")
+    # global_scene = get_scene_by_name("Global")
+    # global_sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(global_scene)
+    # global_count = sum(1 for _ in global_sceneitems)
+    # obs.sceneitem_list_release(global_sceneitems)
+    # print(f"Global count is: {global_count}")
 
     for scene_name, scene_windows in loaded['scenes'].items():
         scene = get_scene_by_name(scene_name)
@@ -171,14 +173,13 @@ def scenes_loaded() -> None:
         if group is None:
             continue
 
+        # noinspection PyShadowingNames
         def wipe_group(group: SceneItem, group_scene: Scene) -> None:
             sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(group_scene)
             for sceneitem in sceneitems:
                 obs.obs_sceneitem_group_remove_item(group, sceneitem)
                 obs.obs_sceneitem_remove(sceneitem)
                 source: Source = obs.obs_sceneitem_get_source(sceneitem)
-                source_name: str = obs.obs_source_get_name(source)
-                print(f"Found {source_name}")
                 obs.obs_source_remove(source)
             obs.sceneitem_list_release(sceneitems)
 
@@ -200,9 +201,9 @@ def scenes_loaded() -> None:
             source_info = {'id': 'window_capture', 'name': window_name, 'settings': {
                 # initialize window now for cosmetic text in OBS
                 # our /some_regex/ syntax is just plaintext to OBS but could still capture something
-                'window': f'{window.title}::{window.exe}',  # blank type to avoid fallback
+                'window': f'{window.title}::{window.exe}',  # blank 'type' to avoid fallback & ensure init later
                 'method': 2,
-                'priority': 0,  # type capture fallback
+                'priority': 0,  # 'type' capture fallback
                 'cursor': window_spec.get('cursor', True),
                 'client_area': window_spec.get('client_area', False)
             }}
@@ -219,18 +220,10 @@ def scenes_loaded() -> None:
             # hide by default as could be an unintentional capture
             obs.obs_sceneitem_set_visible(sceneitem, False)
             obs.obs_sceneitem_set_locked(sceneitem, True)
-            OBS_ALIGN_CENTER = 0
             obs.obs_sceneitem_set_alignment(sceneitem, OBS_ALIGN_CENTER)
             windows[scene_name][window_name] = window
 
         obs.obs_sceneitem_set_visible(group, True)
-
-    def timer() -> None:
-        try:
-            update_active_win_sources()
-        except Exception:
-            obs.remove_current_callback()
-            raise
 
     obs.timer_add(timer, 50)
 
@@ -243,6 +236,7 @@ def init() -> None:
         loaded = yaml.safe_load(f)
 
 
+# noinspection PyUnusedLocal
 @log
 def script_load(settings) -> None:
     global ahk, video_info
@@ -254,7 +248,8 @@ def script_load(settings) -> None:
     obs.timer_add(wait_for_load, 1000)
 
 
-# checking scenes with obs_frontend_get_scene_names() still wouldn't tell us if all the scene items were loaded
+# I'm not aware of a better method than just waiting.
+# Checking scenes with obs_frontend_get_scene_names() isn't enough to know if all the sceneitems are loaded.
 def wait_for_load() -> None:
     obs.remove_current_callback()
     scenes_loaded()
@@ -262,9 +257,9 @@ def wait_for_load() -> None:
 
 @log
 def script_unload() -> None:
-    obs.timer_remove(wait_for_load)
     if ahk is not None:  # None if failed to load
-        ahk.exit()
+        with suppress(AhkExitException):
+            ahk.exit()
 
 
 def script_description() -> str:
