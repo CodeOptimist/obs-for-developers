@@ -139,7 +139,7 @@ def update_active_win_sources() -> None:
                 # obs.timer_add(partial(do_update_source, window), 2500)
             window.min_max = min_max
 
-            window.center()
+            # window.center()
             obs.obs_sceneitem_set_order_position(window.sceneitem, len(scene_windows) - 1)
             obs.obs_sceneitem_set_visible(window.sceneitem, True)
             window.exists = True
@@ -178,24 +178,23 @@ def scenes_loaded() -> None:
 
     for scene_name, scene_windows in loaded['scenes'].items():
         scene = get_scene_by_name(scene_name)
+        group: SceneItem = obs.obs_scene_get_group(scene, "Windows")
+        if group is None:
+            continue
 
-        creating_scene = scene is None
-        if creating_scene:
-            # scene: Scene = obs.obs_scene_create(scene_name)
-            OBS_SCENE_DUP_REFS = 0
-            scene: Scene = obs.obs_scene_duplicate(global_scene, scene_name, OBS_SCENE_DUP_REFS)
-        else:
-            def wipe_scene(scene: Scene) -> None:
-                sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(scene)
-                for sceneitem in sceneitems:
-                    obs.obs_sceneitem_remove(sceneitem)
-                    source: Source = obs.obs_sceneitem_get_source(sceneitem)
-                    source_name: str = obs.obs_source_get_name(source)
-                    if obs.obs_scene_find_source(global_scene, source_name) is None:
-                        obs.obs_source_remove(source)
-                obs.sceneitem_list_release(sceneitems)
+        def wipe_group(group: SceneItem, group_scene: Scene) -> None:
+            sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(group_scene)
+            for sceneitem in sceneitems:
+                obs.obs_sceneitem_group_remove_item(group, sceneitem)
+                obs.obs_sceneitem_remove(sceneitem)
+                source: Source = obs.obs_sceneitem_get_source(sceneitem)
+                source_name: str = obs.obs_source_get_name(source)
+                print(f"Found {source_name}")
+                obs.obs_source_remove(source)
+            obs.sceneitem_list_release(sceneitems)
 
-            wipe_scene(scene)
+        group_scene = obs.obs_sceneitem_group_get_scene(group)
+        wipe_group(group, group_scene)
 
         for idx, (window_name, window_spec) in enumerate(scene_windows.items()):
             if isinstance(window_spec, str):
@@ -217,7 +216,7 @@ def scenes_loaded() -> None:
             window.source = source
 
             # obs_scene_create() creates a scene, but obs_scene_add() adds and returns a sceneitem
-            sceneitem: SceneItem = obs.obs_scene_add(scene, source)
+            sceneitem: SceneItem = obs.obs_scene_add(group_scene, source)
             obs.obs_source_release(source)
             window.sceneitem = sceneitem
 
@@ -226,9 +225,6 @@ def scenes_loaded() -> None:
             obs.obs_sceneitem_set_locked(sceneitem, True)
             window.center()
             windows[scene_name][window_name] = window
-
-        if creating_scene:
-            obs.obs_scene_release(scene)
 
     def timer() -> None:
         try:
