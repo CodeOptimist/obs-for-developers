@@ -57,10 +57,11 @@ class SceneItemWindow:
         new_title = self.title.replace('#3A', ':')
 
         self.is_re = self.title.startswith('/') and self.title.endswith('/')
-        if self.is_re:
-            self.win_title: str = f'{new_title[1:-1]} ahk_exe {re.escape(self.exe)}'
-        else:
-            self.win_title: str = f'{new_title} ahk_exe {self.exe}'
+        self.win_title: str = new_title[1:-1] if self.is_re else new_title
+        if self.class_:
+            self.win_title += f" ahk_class {re.escape(self.class_) if self.is_re else self.class_}"
+        if self.exe:
+            self.win_title += f" ahk_exe {re.escape(self.exe) if self.is_re else self.exe}"
 
     def center(self) -> None:
         if not ahk.f('WinGetWH', self.win_title, self.is_re):
@@ -87,11 +88,11 @@ def update_active_win_sources() -> None:
     obs.obs_source_release(cur_scene_source)
     # print(f"Current scene: {cur_scene_name}")
 
-    windows = window_sceneitems.get(cur_scene_name, {})
-    for window_name, window_sceneitem in windows.items():
+    windows = window_sceneitems[cur_scene_name]
+    for window_name, window_sceneitem in window_sceneitems[cur_scene_name].items():
         if ahk.f('WinActiveRegEx', window_sceneitem.win_title, window_sceneitem.is_re):
             ahk.call('ActiveWinGet')
-            obs_spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), window_sceneitem.exe])
+            obs_spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), ahk.get('exe')])
 
             def update_source(source: Source, obs_spec: str, cond: Callable = None) -> None:
                 data: Data = obs.obs_save_source(source)

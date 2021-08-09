@@ -13,6 +13,7 @@ ActiveWinGet() {
     global
     WinGetTitle, title, A
     WinGetClass, class, A
+    WinGet, exe, ProcessName, A
     WinGet, state, MinMax, A
 }
 
