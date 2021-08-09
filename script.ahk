@@ -1,10 +1,12 @@
 #NoEnv
 #SingleInstance force
 
+AutoExec() {
+    SetTitleMatchMode, RegEx
+}
 
-WinGetWH(win_title, is_regex) {
+WinGetWH(win_title) {
     global
-    SetTitleMatchMode, % is_regex ? "RegEx" : "3"
     WinGetPos, _, _, w, h, % win_title
     return w != ""
 }
@@ -17,7 +19,6 @@ ActiveWinGet() {
     WinGet, state, MinMax, A
 }
 
-WinActiveRegEx(win_title, is_regex) {
-    SetTitleMatchMode, % is_regex ? "RegEx" : "3"
+WinActiveRegEx(win_title) {
     return WinActive(win_title)
 }

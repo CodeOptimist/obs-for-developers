@@ -8,14 +8,14 @@ scene_pool:
     'RW PyCharm': '/rimworld-mod-description-tool – .*/:SunAwtFrame:pycharm64.exe'
     'Palette PyCharm': '/command-palette – .*/:SunAwtFrame:pycharm64.exe'
   'Dev': &dev
-    'Sourcetree': 'Sourcetree::SourceTree.exe'
+    'Sourcetree': {window: 'Sourcetree::SourceTree.exe', fallback: exe}
     'dnSpy': '/dnSpy v\S+ \(64-bit, \.NET\)/::dnSpy.exe'
     'DebugView': '/\[(Capture Win32|Paused)\] - DebugView\+\+/::DebugView++.exe'
     'Beyond Compare': '/(.* <--> .*|Text Compare) - Beyond Compare/:TViewForm:BCompare.exe'
     'Visual Studio Code': '/.* - Visual Studio Code/:Chrome_WidgetWin_1:Code.exe'
   'RimWorld': &rw
     'RW Studio': 'RimMods - Microsoft Visual Studio::devenv.exe'
-    'RimWorld': 'RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe'
+    'RimWorld': {window: 'RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe', fallback: exe}
     'RimPy': '/RimPy Mod Manager .*/:Qt5152QWindowIcon:rimpy.exe'
 scenes:
   'RimWorld Dev':

@@ -42,29 +42,32 @@ Data = NewType('Data', object)
 
 @dataclass
 class SceneItemWindow:
-    # determines display order
+    # determines print() display order
     state: Optional[str]
-    is_re: bool
     title: str
     class_: str
     exe: str
     win_title: str
 
-    def __init__(self, sceneitem: SceneItem, window_spec: str) -> None:
+    def __init__(self, sceneitem: SceneItem, window_spec: dict) -> None:
         self.state = None
-        self.title, self.class_, self.exe = window_spec.split(':')
         self.sceneitem: SceneItem = sceneitem
-        new_title = self.title.replace('#3A', ':')
 
-        self.is_re = self.title.startswith('/') and self.title.endswith('/')
-        self.win_title: str = new_title[1:-1] if self.is_re else new_title
+        def r(text: str) -> str:
+            result = text.replace('#3A', ':')
+            is_re = result.startswith('/') and result.endswith('/')
+            result = result[1:-1] if is_re else re.escape(result)
+            return result
+
+        self.title, self.class_, self.exe = window_spec['window'].split(':')
+        self.win_title: str = r(self.title)
         if self.class_:
-            self.win_title += f" ahk_class {re.escape(self.class_) if self.is_re else self.class_}"
+            self.win_title += f" ahk_class {r(self.class_)}"
         if self.exe:
-            self.win_title += f" ahk_exe {re.escape(self.exe) if self.is_re else self.exe}"
+            self.win_title += f" ahk_exe {r(self.exe)}"
 
     def center(self) -> None:
-        if not ahk.f('WinGetWH', self.win_title, self.is_re):
+        if not ahk.f('WinGetWH', self.win_title):
             print(f"Matchless {self}")
             return
 
@@ -83,14 +86,12 @@ video_info: VideoInfo
 
 def update_active_win_sources() -> None:
     cur_scene_source: Source = obs.obs_frontend_get_current_scene()
-    # cur_scene: Scene = obs.obs_scene_from_source(cur_scene_source)
     cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
     obs.obs_source_release(cur_scene_source)
-    # print(f"Current scene: {cur_scene_name}")
 
     windows = window_sceneitems[cur_scene_name]
     for window_name, window_sceneitem in window_sceneitems[cur_scene_name].items():
-        if ahk.f('WinActiveRegEx', window_sceneitem.win_title, window_sceneitem.is_re):
+        if ahk.f('WinActiveRegEx', window_sceneitem.win_title):
             def update_source(source: Source, obs_spec: str, cond: Callable = None) -> None:
                 data: Data = obs.obs_save_source(source)
                 source_info = json.loads(obs.obs_data_get_json(data))
@@ -102,8 +103,11 @@ def update_active_win_sources() -> None:
                     obs.obs_source_update(source, new_data)
                     obs.obs_data_release(new_data)
 
+            def e(text: str) -> str:
+                return text.replace(':', '#3A')
+
             ahk.call('ActiveWinGet')
-            obs_spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), ahk.get('exe')])
+            obs_spec = ":".join([(e(ahk.get('title'))), e(ahk.get('class')), e(ahk.get('exe'))])
             source: Source = obs.obs_sceneitem_get_source(window_sceneitem.sceneitem)
             update_source(source, obs_spec, cond=lambda source_info: source_info['settings']['window'] != obs_spec)
 
@@ -170,9 +174,17 @@ def scenes_loaded() -> None:
             wipe_scene(scene)
 
         for idx, (window_name, window_spec) in enumerate(scene_windows.items()):
+            if isinstance(window_spec, str):
+                window_spec = {'window': window_spec}
+
             # we set 'window' here for the cosmetic name within OBS; OBS doesn't actually support regex, that's our own addition
-            source_info = {'id': 'window_capture', 'name': window_name,
-                           'settings': {'method': 2, 'priority': 1, 'window': window_spec}}
+            source_info = {'id': 'window_capture', 'name': window_name, 'settings': {
+                'window': window_spec['window'],
+                'method': 2,
+                'priority': ({'title': 1, 'type': 2, 'exe': 3}[window_spec.get('fallback', 'title')]),
+                'cursor': window_spec.get('cursor', True),
+                'client_area': window_spec.get('client_area', False)
+            }}
             data: Data = obs.obs_data_create_from_json(json.dumps(source_info))
             source: Source = obs.obs_load_source(data)
             obs.obs_data_release(data)
