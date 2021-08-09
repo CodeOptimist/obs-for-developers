@@ -16,5 +16,5 @@ WinGet(win_title) {
     WinGetTitle, title, % win_title
     WinGetClass, class, % win_title
     WinGet, exe, ProcessName, % win_title
-    WinGet, state, MinMax, % win_title
+    WinGet, min_max, MinMax, % win_title
 }

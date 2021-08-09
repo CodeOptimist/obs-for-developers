@@ -44,7 +44,8 @@ Data = NewType('Data', object)
 @dataclass
 class Window:
     # determines print() display order
-    state: Optional[str]
+    exists: bool
+    min_max: Optional[str]
     priority: int
     title: str
     class_: str
@@ -54,7 +55,8 @@ class Window:
     sceneitem: SceneItem = field(repr=False)
 
     def __init__(self, window_spec: dict) -> None:
-        self.state = None
+        self.exists = False
+        self.min_max = None
         self.priority = ({'title': 1, 'type': 0, 'exe': 2}[window_spec.get('fallback', 'title')])
 
         # just use for win_title
@@ -105,8 +107,11 @@ def update_active_win_sources() -> None:
 
     scene_windows = windows[cur_scene_name]
     for window_name, window in windows[cur_scene_name].items():
-        # if not ahk.f('WinExist', window.win_title):
-        #     obs.obs_sceneitem_set_visible(window.sceneitem, False)
+        was_closed = window.exists and not ahk.f('WinExist', window.re_win_title)
+        if was_closed:
+            # hide so OBS doesn't fallback to something undesirable (folder with same name as program, etc.)
+            obs.obs_sceneitem_set_visible(window.sceneitem, False)
+            window.exists = False
 
         def update_source(window, force=False) -> None:
             data: Data = obs.obs_save_source(window.source)
@@ -126,17 +131,18 @@ def update_active_win_sources() -> None:
             update_source(window)
 
             # todo AHK can't detect minimized & restore, crap https://autohotkey.com/board/topic/94409-detect-minimized-windows/
-            state = ahk.get('state')
-            if state != window.state:
+            min_max = ahk.get('min_max')
+            if min_max != window.min_max:
                 def do_update_source(window):
                     update_source(window, force=True)
                     obs.remove_current_callback()
                 # obs.timer_add(partial(do_update_source, window), 2500)
-            window.state = state
+            window.min_max = min_max
 
             window.center()
             obs.obs_sceneitem_set_order_position(window.sceneitem, len(scene_windows) - 1)
-            # obs.obs_sceneitem_set_visible(window.sceneitem, True)
+            obs.obs_sceneitem_set_visible(window.sceneitem, True)
+            window.exists = True
 
 
 def log(func: Callable) -> Callable:
@@ -197,7 +203,8 @@ def scenes_loaded() -> None:
 
             window = Window(window_spec)
             source_info = {'id': 'window_capture', 'name': window_name, 'settings': {
-                # initialize to a cosmetic value, though such a window could exist
+                # initialize window now for cosmetic text in OBS
+                # our /some_regex/ syntax is just plaintext to OBS but could still capture something
                 'window': f'{window.title}::{window.exe}',  # blank type to avoid fallback
                 'method': 2,
                 'priority': 0,  # type capture fallback
@@ -214,6 +221,8 @@ def scenes_loaded() -> None:
             obs.obs_source_release(source)
             window.sceneitem = sceneitem
 
+            # hide by default as could be an unintentional capture
+            obs.obs_sceneitem_set_visible(sceneitem, False)
             obs.obs_sceneitem_set_locked(sceneitem, True)
             window.center()
             windows[scene_name][window_name] = window
