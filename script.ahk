@@ -11,14 +11,10 @@ WinGetWH(win_title) {
     return w != ""
 }
 
-ActiveWinGet() {
+WinGet(win_title) {
     global
-    WinGetTitle, title, A
-    WinGetClass, class, A
-    WinGet, exe, ProcessName, A
-    WinGet, state, MinMax, A
-}
-
-WinActiveRegEx(win_title) {
-    return WinActive(win_title)
+    WinGetTitle, title, % win_title
+    WinGetClass, class, % win_title
+    WinGet, exe, ProcessName, % win_title
+    WinGet, state, MinMax, % win_title
 }

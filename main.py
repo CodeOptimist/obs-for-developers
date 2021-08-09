@@ -19,9 +19,10 @@ from pathlib import Path
 from typing import NamedTuple
 # noinspection PyUnresolvedReferences
 from win32api import OutputDebugString
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, NewType, Optional, Iterable, Callable
 from collections import defaultdict
+from functools import partial
 
 class VideoInfo(NamedTuple):
     # and many more
@@ -41,18 +42,22 @@ Data = NewType('Data', object)
 
 
 @dataclass
-class SceneItemWindow:
+class Window:
     # determines print() display order
     state: Optional[str]
+    priority: int
     title: str
     class_: str
     exe: str
-    win_title: str
+    re_win_title: str
+    source: Source = field(repr=False)
+    sceneitem: SceneItem = field(repr=False)
 
-    def __init__(self, sceneitem: SceneItem, window_spec: dict) -> None:
+    def __init__(self, window_spec: dict) -> None:
         self.state = None
-        self.sceneitem: SceneItem = sceneitem
+        self.priority = ({'title': 1, 'type': 0, 'exe': 2}[window_spec.get('fallback', 'title')])
 
+        # just use for win_title
         def r(text: str) -> str:
             result = text.replace('#3A', ':')
             is_re = result.startswith('/') and result.endswith('/')
@@ -60,14 +65,14 @@ class SceneItemWindow:
             return result
 
         self.title, self.class_, self.exe = window_spec['window'].split(':')
-        self.win_title: str = r(self.title)
+        self.re_win_title: str = r(self.title)
         if self.class_:
-            self.win_title += f" ahk_class {r(self.class_)}"
+            self.re_win_title += f" ahk_class {r(self.class_)}"
         if self.exe:
-            self.win_title += f" ahk_exe {r(self.exe)}"
+            self.re_win_title += f" ahk_exe {r(self.exe)}"
 
     def center(self) -> None:
-        if not ahk.f('WinGetWH', self.win_title):
+        if not ahk.f('WinGetWH', self.re_win_title):
             print(f"Matchless {self}")
             return
 
@@ -76,11 +81,20 @@ class SceneItemWindow:
         vec2.y = video_info.base_height / 2 - ahk.get('h') / 2
         obs.obs_sceneitem_set_pos(self.sceneitem, vec2)
 
+    def obs_spec(self) -> str:
+        ahk.call('WinGet', self.re_win_title)
+
+        def s(name: str) -> str:
+            return ahk.get(name).replace(':', '#3A')
+
+        result = ":".join([s('title'), s('class'), s('exe')])
+        return result
+
 
 # globals are reset on reload
 ahk: Script
 loaded: dict
-window_sceneitems: Dict[str, Dict[str, SceneItemWindow]] = defaultdict(defaultdict)
+windows: Dict[str, Dict[str, Window]] = defaultdict(defaultdict)
 video_info: VideoInfo
 
 
@@ -89,36 +103,40 @@ def update_active_win_sources() -> None:
     cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
     obs.obs_source_release(cur_scene_source)
 
-    windows = window_sceneitems[cur_scene_name]
-    for window_name, window_sceneitem in window_sceneitems[cur_scene_name].items():
-        if ahk.f('WinActiveRegEx', window_sceneitem.win_title):
-            def update_source(source: Source, obs_spec: str, cond: Callable = None) -> None:
-                data: Data = obs.obs_save_source(source)
-                source_info = json.loads(obs.obs_data_get_json(data))
-                obs.obs_data_release(data)
-                if cond is None or cond(source_info):
-                    print(f"Updating source to {obs_spec}")
-                    source_info['settings']['window'] = obs_spec
-                    new_data: Data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
-                    obs.obs_source_update(source, new_data)
-                    obs.obs_data_release(new_data)
+    scene_windows = windows[cur_scene_name]
+    for window_name, window in windows[cur_scene_name].items():
+        # if not ahk.f('WinExist', window.win_title):
+        #     obs.obs_sceneitem_set_visible(window.sceneitem, False)
 
-            def e(text: str) -> str:
-                return text.replace(':', '#3A')
+        def update_source(window, force=False) -> None:
+            data: Data = obs.obs_save_source(window.source)
+            source_info = json.loads(obs.obs_data_get_json(data))
+            obs.obs_data_release(data)
 
-            ahk.call('ActiveWinGet')
-            obs_spec = ":".join([(e(ahk.get('title'))), e(ahk.get('class')), e(ahk.get('exe'))])
-            source: Source = obs.obs_sceneitem_get_source(window_sceneitem.sceneitem)
-            update_source(source, obs_spec, cond=lambda source_info: source_info['settings']['window'] != obs_spec)
+            obs_spec = window.obs_spec()
+            if force or source_info['settings']['window'] != obs_spec:
+                print(f"Updating source to {obs_spec}")
+                source_info['settings']['window'] = obs_spec
+                source_info['settings']['priority'] = window.priority
+                new_data: Data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
+                obs.obs_source_update(window.source, new_data)
+                obs.obs_data_release(new_data)
+
+        if ahk.f('WinActive', window.re_win_title):
+            update_source(window)
 
             # todo AHK can't detect minimized & restore, crap https://autohotkey.com/board/topic/94409-detect-minimized-windows/
             state = ahk.get('state')
-            if window_sceneitem.state is None or state != window_sceneitem.state:
-                obs.timer_add(lambda: update_source(source, obs_spec) or obs.remove_current_callback(), 2500)
-            window_sceneitem.state = state
+            if state != window.state:
+                def do_update_source(window):
+                    update_source(window, force=True)
+                    obs.remove_current_callback()
+                # obs.timer_add(partial(do_update_source, window), 2500)
+            window.state = state
 
-            window_sceneitem.center()
-            obs.obs_sceneitem_set_order_position(window_sceneitem.sceneitem, len(windows) - 1)
+            window.center()
+            obs.obs_sceneitem_set_order_position(window.sceneitem, len(scene_windows) - 1)
+            # obs.obs_sceneitem_set_visible(window.sceneitem, True)
 
 
 def log(func: Callable) -> Callable:
@@ -177,26 +195,28 @@ def scenes_loaded() -> None:
             if isinstance(window_spec, str):
                 window_spec = {'window': window_spec}
 
-            # we set 'window' here for the cosmetic name within OBS; OBS doesn't actually support regex, that's our own addition
+            window = Window(window_spec)
             source_info = {'id': 'window_capture', 'name': window_name, 'settings': {
-                'window': window_spec['window'],
+                # initialize to a cosmetic value, though such a window could exist
+                'window': f'{window.title}::{window.exe}',  # blank type to avoid fallback
                 'method': 2,
-                'priority': ({'title': 1, 'type': 2, 'exe': 3}[window_spec.get('fallback', 'title')]),
+                'priority': 0,  # type capture fallback
                 'cursor': window_spec.get('cursor', True),
                 'client_area': window_spec.get('client_area', False)
             }}
             data: Data = obs.obs_data_create_from_json(json.dumps(source_info))
             source: Source = obs.obs_load_source(data)
             obs.obs_data_release(data)
+            window.source = source
 
             # obs_scene_create() creates a scene, but obs_scene_add() adds and returns a sceneitem
             sceneitem: SceneItem = obs.obs_scene_add(scene, source)
             obs.obs_source_release(source)
-            obs.obs_sceneitem_set_locked(sceneitem, True)
+            window.sceneitem = sceneitem
 
-            window_sceneitem = SceneItemWindow(sceneitem, window_spec)
-            window_sceneitem.center()
-            window_sceneitems[scene_name][window_name] = window_sceneitem
+            obs.obs_sceneitem_set_locked(sceneitem, True)
+            window.center()
+            windows[scene_name][window_name] = window
 
         if creating_scene:
             obs.obs_scene_release(scene)
