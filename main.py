@@ -1,4 +1,5 @@
 # https://obsproject.com/docs/scripting.html
+# https://obsproject.com/docs/reference-frontend-api.html
 # https://obsproject.com/docs/reference-core.html
 # https://obsproject.com/docs/reference-scenes.html
 # https://obsproject.com/docs/reference-sources.html
@@ -18,15 +19,24 @@ from typing import NamedTuple
 # noinspection PyUnresolvedReferences
 from win32api import OutputDebugString
 from dataclasses import dataclass
-from typing import Dict, NewType, Optional
+from typing import Dict, NewType, Optional, Iterable
 from collections import defaultdict
 
 class VideoInfo(NamedTuple):
+    # and many more
     base_width: int
     base_height: int
 
 
+class Vec2(NamedTuple):
+    x: float
+    y: float
+
+
+Source = NewType('Source', object)
+Scene = NewType('Scene', object)
 SceneItem = NewType('SceneItem', object)
+Data = NewType('Data', object)
 
 
 @dataclass
@@ -56,7 +66,7 @@ class SceneItemWindow:
             print(f"Matchless {self}")
             return
 
-        vec2 = obs.vec2()
+        vec2: Vec2 = obs.vec2()
         vec2.x = video_info.base_width / 2 - ahk.get('w') / 2
         vec2.y = video_info.base_height / 2 - ahk.get('h') / 2
         obs.obs_sceneitem_set_pos(self.sceneitem, vec2)
@@ -79,9 +89,9 @@ def init():
 
 def log(func):
     def wrapper(*args, **kwargs):
-        before = obs.bnum_allocs()
+        before: int = obs.bnum_allocs()
         result = func(*args, **kwargs)
-        after = obs.bnum_allocs()
+        after: int = obs.bnum_allocs()
         print(f"{datetime.now().strftime('%I:%M:%S:%f')} {before} {func.__name__}() {after}")
         return result
 
@@ -89,13 +99,13 @@ def log(func):
 
 
 def update_source(source, obs_spec, cond=None):
-    data = obs.obs_save_source(source)
+    data: Data = obs.obs_save_source(source)
     source_info = json.loads(obs.obs_data_get_json(data))
     obs.obs_data_release(data)
     if cond is None or cond(source_info):
         print(f"Updating source to {obs_spec}")
         source_info['settings']['window'] = obs_spec
-        new_data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
+        new_data: Data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
         obs.obs_source_update(source, new_data)
         obs.obs_data_release(new_data)
 
@@ -109,16 +119,16 @@ def timer():
 
 
 def update_active_win_sources():
-    cur_scene_source = obs.obs_frontend_get_current_scene()
-    # cur_scene = obs.obs_scene_from_source(cur_scene_source)
-    cur_scene_name = obs.obs_source_get_name(cur_scene_source)
+    cur_scene_source: Source = obs.obs_frontend_get_current_scene()
+    # cur_scene: Scene = obs.obs_scene_from_source(cur_scene_source)
+    cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
     obs.obs_source_release(cur_scene_source)
     # print(f"Current scene: {cur_scene_name}")
 
     windows = window_sceneitems.get(cur_scene_name, {})
     for window_name, window_sceneitem in windows.items():
         if ahk.f('WinActiveRegEx', window_sceneitem.win_title, window_sceneitem.is_re):
-            source = obs.obs_sceneitem_get_source(window_sceneitem.sceneitem)
+            source: Source = obs.obs_sceneitem_get_source(window_sceneitem.sceneitem)
 
             ahk.call('ActiveWinGet')
             obs_spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), window_sceneitem.exe])
@@ -137,9 +147,9 @@ def update_active_win_sources():
 def get_scene_by_name(scene_name):
     sources = None
     try:
-        sources = obs.obs_frontend_get_scenes()
+        sources: Optional[Iterable[Source]] = obs.obs_frontend_get_scenes()
         for source in sources:
-            name = obs.obs_source_get_name(source)
+            name: str = obs.obs_source_get_name(source)
             if name == scene_name:
                 return obs.obs_scene_from_source(source)
         return None
@@ -150,7 +160,7 @@ def get_scene_by_name(scene_name):
 @log
 def scenes_loaded():
     global_scene = get_scene_by_name("Global")
-    global_sceneitems = obs.obs_scene_enum_items(global_scene)
+    global_sceneitems: Optional[Iterable[SceneItem]] = obs.obs_scene_enum_items(global_scene)
     global_count = sum(1 for _ in global_sceneitems)
     obs.sceneitem_list_release(global_sceneitems)
     print(f"Global count is: {global_count}")
@@ -160,16 +170,16 @@ def scenes_loaded():
 
         creating_scene = scene is None
         if creating_scene:
-            # scene = obs.obs_scene_create(scene_name)
+            # scene: Scene = obs.obs_scene_create(scene_name)
             OBS_SCENE_DUP_REFS = 0
-            scene = obs.obs_scene_duplicate(global_scene, scene_name, OBS_SCENE_DUP_REFS)
+            scene: Scene = obs.obs_scene_duplicate(global_scene, scene_name, OBS_SCENE_DUP_REFS)
         else:
             def wipe_scene(scene):
-                sceneitems = obs.obs_scene_enum_items(scene)
+                sceneitems: Optional[Iterable[SceneItem]] = obs.obs_scene_enum_items(scene)
                 for sceneitem in sceneitems:
                     obs.obs_sceneitem_remove(sceneitem)
-                    source = obs.obs_sceneitem_get_source(sceneitem)
-                    source_name = obs.obs_source_get_name(source)
+                    source: Source = obs.obs_sceneitem_get_source(sceneitem)
+                    source_name: str = obs.obs_source_get_name(source)
                     if obs.obs_scene_find_source(global_scene, source_name) is None:
                         obs.obs_source_remove(source)
                 obs.sceneitem_list_release(sceneitems)
@@ -179,12 +189,12 @@ def scenes_loaded():
         for idx, (window_name, window_spec) in enumerate(scene_windows.items()):
             # we set 'window' here for the cosmetic name within OBS; OBS doesn't actually support regex, that's our own addition
             source_info = {'id': 'window_capture', 'name': window_name, 'settings': {'method': 2, 'priority': 1, 'window': window_spec}}
-            data = obs.obs_data_create_from_json(json.dumps(source_info))
-            source = obs.obs_load_source(data)
+            data: Data = obs.obs_data_create_from_json(json.dumps(source_info))
+            source: Source = obs.obs_load_source(data)
             obs.obs_data_release(data)
 
             # obs_scene_create() creates a scene, but obs_scene_add() adds and returns a sceneitem
-            sceneitem = obs.obs_scene_add(scene, source)
+            sceneitem: SceneItem = obs.obs_scene_add(scene, source)
             obs.obs_source_release(source)
             obs.obs_sceneitem_set_locked(sceneitem, True)
 
@@ -204,7 +214,7 @@ def script_load(settings):
     init()
     ahk = Script.from_file(Path(r'C:\Dropbox\Python\obs\script.ahk'))
 
-    video_info = obs.obs_video_info()
+    video_info: VideoInfo = obs.obs_video_info()
     obs.obs_get_video_info(video_info)
     obs.timer_add(wait_for_load, 1000)
 
