@@ -6,6 +6,8 @@
 
 import json
 import re
+import threading
+import time
 from contextlib import suppress
 
 import yaml
@@ -133,7 +135,9 @@ def log(func: Callable) -> Callable:
     return wrapper
 
 
+# this *CAN* still execute a finite amount after script_unload()
 def timer() -> None:
+    # OutputDebugString(f"Script tick. Thread: {threading.get_ident()}")
     try:
         update_active_win_sources()
     except AhkExitException:
@@ -160,12 +164,6 @@ def scenes_loaded() -> None:
             return None
         finally:
             obs.source_list_release(sources)
-
-    # global_scene = get_scene_by_name("Global")
-    # global_sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(global_scene)
-    # global_count = sum(1 for _ in global_sceneitems)
-    # obs.sceneitem_list_release(global_sceneitems)
-    # print(f"Global count is: {global_count}")
 
     for scene_name, scene_windows in loaded['scenes'].items():
         scene = get_scene_by_name(scene_name)
@@ -246,6 +244,7 @@ def script_load(settings) -> None:
     video_info = obs.obs_video_info()
     obs.obs_get_video_info(video_info)
     obs.timer_add(wait_for_load, 1000)
+    # OutputDebugString(f"Script load. Thread: {threading.get_ident()}")
 
 
 # I'm not aware of a better method than just waiting.
@@ -257,9 +256,17 @@ def wait_for_load() -> None:
 
 @log
 def script_unload() -> None:
+    # OutputDebugString(f"Script unload. Thread: {threading.get_ident()}")
     if ahk is not None:  # None if failed to load
         with suppress(AhkExitException):
             ahk.exit()
+        # avoids crash with 'Reload Scripts': 0xc0000409 (EXCEPTION_STACK_BUFFER_OVERRUN)
+        #  https://devblogs.microsoft.com/oldnewthing/20190108-00/?p=100655
+        #  > "What this means is that nowadays when you get a STATUS_STACK_BUFFER_OVERRUN,
+        #  > it doesn’t actually mean that there is a stack buffer overrun.
+        #  > It just means that the application decided to terminate itself with great haste."
+        #  > Raymond Chen 2019-01-08
+        time.sleep(0.01)  # 0.001 is too small, 0.005 seemed large enough
 
 
 def script_description() -> str:
