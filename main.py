@@ -3,9 +3,11 @@
 # https://obsproject.com/docs/reference-core.html
 # https://obsproject.com/docs/reference-scenes.html
 # https://obsproject.com/docs/reference-sources.html
+# To retain sanity, EVERY "= obs." should be preceded by a type annotation.
 
 import json
 import re
+# noinspection PyUnresolvedReferences
 import threading
 import time
 from contextlib import suppress
@@ -15,16 +17,17 @@ import yaml
 if __name__ != '__main__':
     # noinspection PyUnresolvedReferences
     import obspython as obs
-# noinspection PyUnresolvedReferences
 from ahkunwrapped import Script, AhkExitException
 from datetime import datetime
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, Iterator, ContextManager, ClassVar
 # noinspection PyUnresolvedReferences
 from win32api import OutputDebugString
 from dataclasses import dataclass, field
-from typing import Dict, NewType, Optional, Iterable, Callable
+from typing import Dict, NewType, Optional, Callable
 from collections import defaultdict
+from contextlib import contextmanager
+
 
 class VideoInfo(NamedTuple):
     # and many more
@@ -37,14 +40,38 @@ class Vec2(NamedTuple):
     y: float
 
 
+Data = NewType('Data', object)
 Source = NewType('Source', object)
 Scene = NewType('Scene', object)
 SceneItem = NewType('SceneItem', object)
-Data = NewType('Data', object)
+
+
+# https://stackoverflow.com/questions/49733699/python-type-hints-and-context-managers
+@contextmanager
+def get_data(data) -> ContextManager[Data]:
+    try: yield data
+    finally: obs.obs_data_release(data)
+
+@contextmanager
+def get_source(source) -> ContextManager[Source]:
+    try: yield source
+    finally: obs.obs_source_release(source)
+
+@contextmanager
+def get_source_list(source_list) -> ContextManager[Iterator[Source]]:
+    try: yield source_list
+    finally: obs.source_list_release(source_list)
+
+@contextmanager
+def get_sceneitem_list(sceneitem_list) -> ContextManager[Iterator[SceneItem]]:
+    try: yield sceneitem_list
+    finally: obs.sceneitem_list_release(sceneitem_list)
 
 
 @dataclass
 class Window:
+    MATCH_PRIORITY: ClassVar = {'type': 0, 'title': 1, 'exe': 2}
+
     # determines print() display order
     exists: bool
     priority: int
@@ -57,7 +84,7 @@ class Window:
 
     def __init__(self, window_spec: dict) -> None:
         self.exists = False
-        self.priority = {'title': 1, 'type': 0, 'exe': 2}[window_spec.get('fallback', 'title')]
+        self.priority = Window.MATCH_PRIORITY[window_spec.get('fallback', 'title')]
 
         # just used for win_title
         def r(text: str) -> str:
@@ -86,38 +113,39 @@ class Window:
 # globals are reset on reload
 ahk: Script
 loaded: dict
-windows: Dict[str, Dict[str, Window]] = defaultdict(defaultdict)
 video_info: VideoInfo
+windows: Dict[str, Dict[str, Window]] = defaultdict(defaultdict)
+OBS_ALIGN_CENTER = 0
 
 
 def update_active_win_sources() -> None:
-    cur_scene_source: Source = obs.obs_frontend_get_current_scene()
-    cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
-    obs.obs_source_release(cur_scene_source)
+    with get_source(obs.obs_frontend_get_current_scene()) as cur_scene_source:
+        cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
 
     scene_windows = windows[cur_scene_name]
     for window_name, window in windows[cur_scene_name].items():
         was_closed = window.exists and not ahk.f('WinExist', window.re_win_title)
         if was_closed:
             # hide so OBS doesn't fallback to something undesirable (folder with same name as program, etc.)
-            obs.obs_sceneitem_set_visible(window.sceneitem, False)
+            obs.obs_sceneitem_set_visible(window.sceneitem, False)  # :HideBadCapture
             window.exists = False
 
         if ahk.f('WinActive', window.re_win_title):
-            data: Data = obs.obs_save_source(window.source)
-            source_info = json.loads(obs.obs_data_get_json(data))
-            obs.obs_data_release(data)
+            with get_data(obs.obs_save_source(window.source)) as data:
+                source_info = json.loads(obs.obs_data_get_json(data))
 
             obs_spec = window.obs_spec()
             # always true on first window activation since we left 'type' empty
             if source_info['settings']['window'] != obs_spec:
+                # No documentation regarding 'settings' of obs_source_info; gleaned from '%AppData%\obs-studio\basic\scenes\Untitled.json'
+                # https://obsproject.com/docs/reference-sources.html#source-definition-structure-obs-source-info
                 print(f"Updating source to {obs_spec}")
                 source_info['settings']['window'] = obs_spec
                 source_info['settings']['priority'] = window.priority
-                new_data: Data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
-                obs.obs_source_update(window.source, new_data)
-                obs.obs_data_release(new_data)
+                with get_data(obs.obs_data_create_from_json(json.dumps(source_info['settings']))) as new_data:
+                    obs.obs_source_update(window.source, new_data)
 
+            # layer the window captures
             obs.obs_sceneitem_set_order_position(window.sceneitem, len(scene_windows) - 1)
             obs.obs_sceneitem_set_visible(window.sceneitem, True)
             window.exists = True
@@ -126,6 +154,7 @@ def update_active_win_sources() -> None:
 def log(func: Callable) -> Callable:
     # noinspection PyMissingTypeHints
     def wrapper(*args, **kwargs):
+        # https://obsproject.com/docs/reference-libobs-util-bmem.html#c.bnum_allocs
         before: int = obs.bnum_allocs()
         result = func(*args, **kwargs)
         after: int = obs.bnum_allocs()
@@ -147,49 +176,44 @@ def timer() -> None:
         raise
 
 
-OBS_ALIGN_CENTER = 0
-
-
 @log
 def scenes_loaded() -> None:
     # noinspection PyShadowingNames
     def get_scene_by_name(scene_name: str) -> Optional[Scene]:
-        sources = ()
-        try:
-            sources: Iterable[Source] = obs.obs_frontend_get_scenes()
+        with get_source_list(obs.obs_frontend_get_scenes()) as sources:
             for source in sources:
                 name: str = obs.obs_source_get_name(source)
                 if name == scene_name:
                     return obs.obs_scene_from_source(source)
             return None
-        finally:
-            obs.source_list_release(sources)
 
     for scene_name, scene_windows in loaded['scenes'].items():
         scene = get_scene_by_name(scene_name)
-        group: SceneItem = obs.obs_scene_get_group(scene, "Windows")
+        group: SceneItem = obs.obs_scene_get_group(scene, "Windows")  # None if scene is None
         if group is None:
             continue
 
         # noinspection PyShadowingNames
+        @log
         def wipe_group(group: SceneItem, group_scene: Scene) -> None:
-            sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(group_scene)
-            for sceneitem in sceneitems:
-                obs.obs_sceneitem_group_remove_item(group, sceneitem)
-                obs.obs_sceneitem_remove(sceneitem)
-                source: Source = obs.obs_sceneitem_get_source(sceneitem)
-                obs.obs_source_remove(source)
-            obs.sceneitem_list_release(sceneitems)
+            with get_sceneitem_list(obs.obs_scene_enum_items(group_scene)) as sceneitems:
+                for sceneitem in sceneitems:
+                    obs.obs_sceneitem_group_remove_item(group, sceneitem)
+                    obs.obs_sceneitem_remove(sceneitem)
+                    source: Source = obs.obs_sceneitem_get_source(sceneitem)
+                    obs.obs_source_remove(source)  # notifies reference holders to release
 
-        group_scene = obs.obs_sceneitem_group_get_scene(group)
+        group_scene: Scene = obs.obs_sceneitem_group_get_scene(group)
         wipe_group(group, group_scene)
 
         obs.obs_sceneitem_set_visible(group, False)
         obs.obs_sceneitem_set_locked(group, True)
-        vec2: Vec2 = obs.vec2()
-        vec2.x = video_info.base_width / 2
-        vec2.y = video_info.base_height / 2
-        obs.obs_sceneitem_set_pos(group, vec2)
+
+        center: Vec2 = obs.vec2()
+        center.x = video_info.base_width / 2
+        center.y = video_info.base_height / 2
+        # no effect on a group: obs.obs_sceneitem_set_alignment(group, OBS_ALIGN_CENTER)
+        obs.obs_sceneitem_set_pos(group, center)
 
         for idx, (window_name, window_spec) in enumerate(scene_windows.items()):
             if isinstance(window_spec, str):
@@ -198,25 +222,23 @@ def scenes_loaded() -> None:
             window = Window(window_spec)
             source_info = {'id': 'window_capture', 'name': window_name, 'settings': {
                 # initialize window now for cosmetic text in OBS
-                # our /some_regex/ syntax is just plaintext to OBS but could still capture something
-                'window': f'{window.title}::{window.exe}',  # blank 'type' to avoid fallback & ensure init later
-                'method': 2,
-                'priority': 0,  # 'type' capture fallback
+                # our /some_regex/ syntax is just plaintext to OBS so could accidentally capture :HideBadCapture
+                'window': f'{window.title}::{window.exe}',  # 'type' (between ':') is blank initially
+                'method': 2,  # 'Windows 10 (1903 and up)'
+                # poor name, more like fallback method when specific window disappears
+                #  'title' will actually fallback to another window with identical title
+                #  'type' with a blank value in 'window' ^ is the only way to really disable it
+                'priority': Window.MATCH_PRIORITY['type'],
                 'cursor': window_spec.get('cursor', True),
                 'client_area': window_spec.get('client_area', False)
             }}
-            data: Data = obs.obs_data_create_from_json(json.dumps(source_info))
-            source: Source = obs.obs_load_source(data)
-            obs.obs_data_release(data)
-            window.source = source
+            with get_data(obs.obs_data_create_from_json(json.dumps(source_info))) as data:
+                with get_source(obs.obs_load_source(data)) as source:
+                    window.source = source
+                    sceneitem: SceneItem = obs.obs_scene_add(group_scene, source)
+                    window.sceneitem = sceneitem
 
-            # obs_scene_create() creates a scene, but obs_scene_add() adds and returns a sceneitem
-            sceneitem: SceneItem = obs.obs_scene_add(group_scene, source)
-            obs.obs_source_release(source)
-            window.sceneitem = sceneitem
-
-            # hide by default as could be an unintentional capture
-            obs.obs_sceneitem_set_visible(sceneitem, False)
+            obs.obs_sceneitem_set_visible(sceneitem, False)  # :HideBadCapture
             obs.obs_sceneitem_set_locked(sceneitem, True)
             obs.obs_sceneitem_set_alignment(sceneitem, OBS_ALIGN_CENTER)
             windows[scene_name][window_name] = window
@@ -241,8 +263,9 @@ def script_load(settings) -> None:
     init()
     ahk = Script.from_file(Path(r'C:\Dropbox\Python\obs\script.ahk'))
 
-    video_info = obs.obs_video_info()
+    video_info = obs.obs_video_info()  # annotated at global scope https://stackoverflow.com/questions/67527942/
     obs.obs_get_video_info(video_info)
+
     obs.timer_add(wait_for_load, 1000)
     # OutputDebugString(f"Script load. Thread: {threading.get_ident()}")
 
@@ -261,10 +284,10 @@ def script_unload() -> None:
         with suppress(AhkExitException):
             ahk.exit()
         # avoids crash with 'Reload Scripts': 0xc0000409 (EXCEPTION_STACK_BUFFER_OVERRUN)
+        #  possibly an OBS bug and not ahkUnwrapped... knock on wood
         #  https://devblogs.microsoft.com/oldnewthing/20190108-00/?p=100655
-        #  > "What this means is that nowadays when you get a STATUS_STACK_BUFFER_OVERRUN,
-        #  > it doesn’t actually mean that there is a stack buffer overrun.
-        #  > It just means that the application decided to terminate itself with great haste."
+        #  > "nowadays [...] doesn’t actually mean that there is a stack buffer overrun.
+        #  > [...] just means that the application decided to terminate itself with great haste."
         #  > Raymond Chen 2019-01-08
         time.sleep(0.01)  # 0.001 is too small, 0.005 seemed large enough
 
