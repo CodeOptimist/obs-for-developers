@@ -104,6 +104,7 @@ class LoadedCaptureInfo:
 
 @dataclass
 class OsWindow:
+    scene_name: str = field(compare=False)
     scene_pattern_idx: int = field(compare=False)
     exists: bool
     focused: bool
@@ -120,6 +121,7 @@ class OsWindow:
 
     def __post_init__(self):
         self.scene_pattern_idx = int(self.scene_pattern_idx)
+        self.pattern = scene_patterns[self.scene_name][self.scene_pattern_idx]
         self.id = self.exists
         self.exists = self.exists != '0x0'
         self.focused = self.focused != '0x0'
@@ -128,6 +130,13 @@ class OsWindow:
             return text.replace(':', '#3A')
 
         self.obs_spec = f"{to_obs(self.title)}:{to_obs(self.class_)}:{to_obs(self.exe)}"
+
+    @staticmethod
+    def get_windows(scene_name: str, from_cache: bool):
+        ahk.set('wintitles', '\n'.join(pattern.ahk_wintitle for pattern in scene_patterns[scene_name]))
+        result_str = ahk.f('GetWindowsCached' if from_cache else 'GetWindows')
+        result = [OsWindow(scene_name, *window_str.split('\r')[:-1]) for window_str in result_str.split('\n')[:-1]]
+        return result
 
 
 # globals are reset on reload
@@ -149,15 +158,8 @@ def update_window_sceneitems() -> None:
         return
 
     # even something like `ahk.f('WinActive', f"ahk_id {match.id}")` takes 0.03 seconds, much too long to block waiting for live result
-    patterns = scene_patterns[cur_scene_name]
-    windows_str = ahk.f('GetWindowsCached', '\n'.join(pattern.ahk_wintitle for pattern in patterns))
-    windows = {}
-    for window_str in windows_str.split('\n')[:-1]:
-        window = OsWindow(*window_str.split('\r')[:-1])
-        window.pattern = patterns[window.scene_pattern_idx]
-        windows[window.id] = window
-
-    for window in windows.values():
+    windows = OsWindow.get_windows(cur_scene_name, from_cache=True)
+    for window in windows:
         try:
             existing_window = scene_windows[cur_scene_name][window.id]
             if window == existing_window:
@@ -323,13 +325,7 @@ def init() -> None:
             pattern = LoadedCaptureInfo(pattern_name, **pattern_spec)
             scene_patterns[scene_name].append(pattern)
 
-            ahk.set('_wintitles', f"{pattern.ahk_wintitle}")
-            windows_str = ahk.f('GetWindows')
-            for window_str in windows_str.split('\n')[:-1]:
-                window = OsWindow(*window_str.split('\r')[:-1])
-                window.pattern = pattern
-                scene_windows[scene_name][window.id] = window
-        pass
+        scene_windows[scene_name] = {window.id: window for window in OsWindow.get_windows(scene_name, from_cache=False)}
 
 
 # noinspection PyUnusedLocal

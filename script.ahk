@@ -19,17 +19,16 @@ GetMatchWinTitle(wintitle) {
     WinGet, exe, ProcessName, % wintitle
 }
 
-GetWindowsCached(wintitles) {
-    global _wintitles, windows
-    _wintitles := wintitles
+GetWindowsCached() {
+    global windows
     SetTimer, GetWindows, -0
-    return windows  ; return version immediately
+    return windows
 }
 
 GetWindows() {
-    global _wintitles, windows
+    global wintitles, windows
     result := ""
-    Loop, Parse, _wintitles, `n
+    Loop, Parse, wintitles, `n
     {
         patternIdx := A_Index - 1
         WinGet, idList, List, % A_LoopField
