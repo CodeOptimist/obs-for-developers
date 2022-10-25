@@ -1,40 +1,29 @@
-# it's impossible to disable fallback, so we try to specify the safest between 'title', 'type', and 'exe'
-#  our script detects window exit and hides the sceneitem, but not instantly
-
+# a blank title will use `fallback: exe`, it's impossible to disable fallback so try to make titles as specific as possible
+# (this is because there could be a delay between fallback and the script removing the sceneitem)
 ---
 scene_pool:
   System: &system
-    'Command Palette': 'Command Palette:AutoHotkeyGUI:AutoHotkey.exe'
-    'Emoji Selector': 'Emoji Selector:AutoHotkeyGUI:AutoHotkey.exe'
-    # todo combine
-    'grepWin': 'grepWin #3A C#3A\Dropbox\Python:#32770:grepWin.exe'
-    'grepWin 2': 'grepWin #3A C#3A\Program Files (x86)\Steam\st...\Data:#32770:grepWin.exe'
+    'Palette:': '/(Command Palette|Emoji Selector)/:AutoHotkeyGUI:AutoHotkey.exe'
+    'grepWin': '/grepWin #3A C#3A\\(Dropbox\\Python|Program Files \(x86\)\\Steam\\st...\\Data)/:#32770:grepWin.exe'
     'Vista': '/Windows Vista .* - Virtual Machine Connection/:WindowsForms10.Window.8.app.0.aa0c13_r6_ad1:vmconnect.exe'
     # capitalized version is when ran as Administrator
-    'Process Explorer': {window: '/Process Explorer - Sysinternals.*/:PROCEXPL:/(procexp|PROCEXP)64\.exe/', fallback: exe}
-    'Process Props': {window: '/.* Properties/:#32770:procexp64.exe', method: bitblt, fallback: exe}
-    'Stream': '/.*/:Chrome_WidgetWin_1:stream.exe'
+    'Process Explorer': {window: '/Process Explorer - Sysinternals.*/:PROCEXPL:/(procexp|PROCEXP)64\.exe/', priority: exe}
+    'Process Props': {window: '/.* Properties/:#32770:procexp64.exe', method: bitblt, priority: exe}
+    'Stream': ':Chrome_WidgetWin_1:stream.exe'
   PyCharm: &pycharm
-    'PyCharm': '/.*\b(obs|ahkUnwrapped)\b.*/:SunAwtFrame:pycharm64.exe'
-    'RW PyCharm': '/rimworld-mod-description-tool – .*/:SunAwtFrame:pycharm64.exe'
-    'Palette PyCharm': '/command-palette – .*/:SunAwtFrame:pycharm64.exe'
-    'DocSearch PyCharm': '/document-search – .*/:SunAwtFrame:pycharm64.exe'
-    'Emoji PyCharm': '/emoji-selector – .*/:SunAwtFrame:pycharm64.exe'
-#    'ahkUnwrapped Merge PyCharm': {window: '/Merge Revisions for .*\bahkUnwrapped\b.*/:SunAwtDialog:pycharm64.exe', method: bitblt}
+    'PyCharm': '/.*\b(obs|ahkUnwrapped|rimworld-mod-description-tool|command-palette|emoji-selector)\b.*/:SunAwtFrame:pycharm64.exe'
   'Sourcetree': &sourcetree
-    'Sourcetree': {window: 'Sourcetree::SourceTree.exe', fallback: exe}
-    # separate so can layer on top of Sourcetree (if not maximized)
-    'Sourcetree2': {window: '/(Log|Blame)#3A .*/::SourceTree.exe', fallback: exe}
-    'MINGW32': '/MINGW32#3A.*/Dropbox/.*/:mintty:mintty.exe'
-    'Beyond Compare': '/(.* <--> .*|Text Compare|Text Merge) - Beyond Compare/:TViewForm:BCompare.exe'
+    'Sourcetree': '::SourceTree.exe'
+#    'MINGW32': '/MINGW32#3A.*/Dropbox/.*/:mintty:mintty.exe'
+#    'Beyond Compare': '/(.* <--> .*|Text Compare|Text Merge) - Beyond Compare/:TViewForm:BCompare.exe'
   'Dev': &dev
-    'dnSpy': '/dnSpy v\S+ \(64-bit, \.NET\)/::dnSpy.exe'
-    'dnSpy IL': {window: '/Edit Method Body\b.*/::dnSpy.exe', method: bitblt}
-    'DebugView': '/\[(Capture Win32|Paused)\] - DebugView\+\+/::DebugView++.exe'
+    'dnSpy': '::dnSpy.exe'
+#    'dnSpy IL': {window: '/Edit Method Body\b.*/::dnSpy.exe', method: bitblt}
+    'DebugView': '::DebugView++.exe'
     'Visual Studio Code': '/.* - Visual Studio Code/:Chrome_WidgetWin_1:Code.exe'
   'RimWorld': &rw
     'RW Studio': 'RimMods - Microsoft Visual Studio::devenv.exe'
-    'RimWorld': {window: 'RimWorld by Ludeon Studios:UnityWndClass:RimWorldWin64.exe', fallback: exe, client_area: True}
+    'RimWorld': {window: ':UnityWndClass:RimWorldWin64.exe', client_area: True}
     'RimPy': '/RimPy Mod Manager .*/:Qt5152QWindowIcon:rimpy.exe'
 scenes:
   'Development':

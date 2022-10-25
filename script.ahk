@@ -36,7 +36,7 @@ GetWindows() {
         {
             wintitle := "ahk_id " idList%A_Index%
             result .= patternIdx "`r"          ; pattern_idx
-            result .= WinExist(wintitle) "`r"  ; exists
+            result .= WinExist(wintitle) "`r"  ; id
             result .= WinActive(wintitle) "`r" ; focused
             WinGetTitle, title, % wintitle
             result .= title "`r"               ; title

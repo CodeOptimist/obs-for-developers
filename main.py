@@ -1,6 +1,5 @@
 # todo deleting 'Windows' group = crash
-# todo re-use existing Source for new sceneitems
-# todo delete/re-use existing sceneitems for certain things e.g. RimWorld.exe (new window each restart)
+# todo re-use existing Source for Window sceneitems in completely different scenes?
 # https://obsproject.com/docs/scripting.html
 # https://obsproject.com/docs/reference-frontend-api.html
 # https://obsproject.com/docs/reference-core.html
@@ -23,7 +22,7 @@ if __name__ != '__main__':
 from ahkunwrapped import Script, AhkExitException
 from datetime import datetime
 from pathlib import Path
-from typing import NamedTuple, Iterator, ContextManager, ClassVar, List
+from typing import NamedTuple, Iterator, ContextManager, ClassVar, List, Tuple, Set
 # noinspection PyUnresolvedReferences
 from win32api import OutputDebugString
 from dataclasses import dataclass, field
@@ -76,18 +75,23 @@ class LoadedCaptureInfo:
     OBS_CAPTURE_FALLBACK: ClassVar = {'type': 0, 'title': 1, 'exe': 2}
     OBS_CAPTURE_METHOD: ClassVar = {'auto': 0, 'bitblt': 1, 'wgc': 2}
 
-    # determines print() display order
     name: str
-    window: str
-    method: str = field(default='wgc')
-    fallback: str = field(default='title')
-    cursor: bool = field(default=True)
-    client_area: bool = field(default=False)
+    # temporary used to set `ahk_wintitle`
+    window: str  # actual pattern, like obs_spec (`title:class:exe`) but each is optional and `/regex/` support
 
-    ahk_wintitle: str = field(init=False)
+    method: str = field(default='wgc')  # source_info[settings]['method']
+    fallback: str = field(default='title')  # source_info[settings]['priority']
+    cursor: bool = field(default=True)  # source_info[settings]['cursor']
+    client_area: bool = field(default=False)  # source_info[settings]['client_area']
 
-    def __post_init__(self):
+    ahk_wintitle: str = field(init=False, default="")
+
+    def __post_init__(self) -> None:
         title, class_, exe = self.window.split(':')
+        assert title or class_ or exe, "Empty capture pattern in file"
+
+        if self.fallback == 'title' and not title:
+            self.fallback = 'exe'
 
         def to_ahk(text: str) -> str:
             result = text.replace('#3A', ':')
@@ -95,7 +99,8 @@ class LoadedCaptureInfo:
             result = result[1:-1] if is_re else re.escape(result)
             return result
 
-        self.ahk_wintitle: str = to_ahk(title)
+        if title:
+            self.ahk_wintitle += to_ahk(title)
         if class_:
             self.ahk_wintitle += f" ahk_class {to_ahk(class_)}"
         if exe:
@@ -104,38 +109,43 @@ class LoadedCaptureInfo:
 
 @dataclass
 class OsWindow:
+    # we disable comparisons for use with set() to find closed & opened windows
     scene_name: str = field(compare=False)
-    scene_pattern_idx: int = field(compare=False)
-    exists: bool
-    focused: bool
-    title: str = field(compare=False)  # some titles can change often (e.g. tabs), doesn't make OBS un-capture
-    class_: str
-    exe: str
+
+    # from ahk
+    scene_pattern_idx: None = field(compare=False, repr=False)  # temporary to set `pattern`
+    id: str
+    focused: bool = field(compare=False)
+    title: str = field(compare=False)
+    class_: str = field(compare=False)
+    exe: str = field(compare=False)
 
     pattern: LoadedCaptureInfo = field(init=False, compare=False)
-    id: int = field(init=False, compare=False)
     obs_spec: str = field(init=False, compare=False)
 
-    obs_source: Source = field(init=False, compare=False, repr=False)  # used to get/set current capture settings
-    obs_sceneitem: SceneItem = field(init=False, compare=False, repr=False)  # used to position and hide/show sceneitem
+    def __hash__(self) -> int:
+        return hash(self.id)
 
-    def __post_init__(self):
-        self.scene_pattern_idx = int(self.scene_pattern_idx)
-        self.pattern = scene_patterns[self.scene_name][self.scene_pattern_idx]
-        self.id = self.exists
-        self.exists = self.exists != '0x0'
+    def __str__(self) -> str:
+        return f"{self.pattern.name} {self.id}"
+
+    def __post_init__(self) -> None:
         self.focused = self.focused != '0x0'
+        self.pattern = scene_patterns[self.scene_name][int(self.scene_pattern_idx)]
+        self.scene_pattern_idx = None  # just to avoid confusion
 
         def to_obs(text: str) -> str:
             return text.replace(':', '#3A')
 
+        # class is required here, title and exe are not (no matter OBS capture 'priority' or 'method')
+        # (of course we want to be as specific as possible to get the right window)
         self.obs_spec = f"{to_obs(self.title)}:{to_obs(self.class_)}:{to_obs(self.exe)}"
 
     @staticmethod
     def get_windows(scene_name: str, from_cache: bool):
         ahk.set('wintitles', '\n'.join(pattern.ahk_wintitle for pattern in scene_patterns[scene_name]))
         result_str = ahk.f('GetWindowsCached' if from_cache else 'GetWindows')
-        result = [OsWindow(scene_name, *window_str.split('\r')[:-1]) for window_str in result_str.split('\n')[:-1]]
+        result = set(OsWindow(scene_name, *window_str.split('\r')[:-1]) for window_str in result_str.split('\n')[:-1])
         return result
 
 
@@ -144,46 +154,51 @@ ahk: Script
 loaded: dict
 video_info: VideoInfo
 center: Vec2
-scene_patterns: Dict[str, List[LoadedCaptureInfo]] = defaultdict(list)
-scene_windows: Dict[str, Dict[int, OsWindow]] = defaultdict(dict)
-scene_group: Dict[str, Scene] = {}
+scene_patterns: Dict[str, List[LoadedCaptureInfo]] = defaultdict(list)  # user data
+scene_windows: Dict[str, Set[OsWindow]] = defaultdict(set)  # os data
+
+# obs data
+scene_group: Dict[str, Tuple[SceneItem, Scene]] = {}
+scene_window_sceneitems: Dict[str, Dict[str, SceneItem]] = defaultdict(dict)
 
 
 def update_window_sceneitems() -> None:
     with get_source(obs.obs_frontend_get_current_scene()) as cur_scene_source:
         cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
 
-    group_scene = scene_group.get(cur_scene_name)
-    if group_scene is None:
+    group_sceneitem, _ = scene_group.get(cur_scene_name) or (None, None)
+    if group_sceneitem is None:
         return
 
-    # even something like `ahk.f('WinActive', f"ahk_id {match.id}")` takes 0.03 seconds, much too long to block waiting for live result
-    windows = OsWindow.get_windows(cur_scene_name, from_cache=True)
-    for window in windows:
-        try:
-            existing_window = scene_windows[cur_scene_name][window.id]
-            if window == existing_window:
-                continue
+    last_windows = scene_windows[cur_scene_name]
+    # ahkUnwrapped itself is <1ms but `ahk.f('WinActive', f"ahk_id {match.id}")` takes 30ms; much too slow (blocks encoding)
+    cur_windows = OsWindow.get_windows(cur_scene_name, from_cache=True)
+    scene_windows[cur_scene_name] = cur_windows
 
-            # will be the same since window ids match, we only fetched window status above
-            window.obs_source = existing_window.obs_source
-            window.obs_sceneitem = existing_window.obs_sceneitem
+    for closed_window in last_windows - cur_windows:
+        sceneitem = scene_window_sceneitems[cur_scene_name].pop(closed_window.id)
+        print_debug(f"Removing '{closed_window}' ('{closed_window.obs_spec}')")
+        obs.obs_sceneitem_group_remove_item(group_sceneitem, sceneitem)
+        obs.obs_sceneitem_remove(sceneitem)
+        source: Source = obs.obs_sceneitem_get_source(sceneitem)
+        obs.obs_source_remove(source)  # notifies reference holders to release
 
-            # compares fields that aren't compare=False
-        except KeyError:
-            create_in_obs(group_scene, window)
+    for opened_window in cur_windows - last_windows:
+        sceneitem = scene_window_sceneitems[cur_scene_name].get(opened_window.id)
+        if sceneitem is None:
+            print_debug(f"Creating '{opened_window}'")
+            create_in_obs(cur_scene_name, opened_window)
 
-        if not window.exists:
-            # hide so OBS doesn't fallback to something undesirable (folder with same name as program, etc.)
-            obs.obs_sceneitem_set_visible(window.obs_sceneitem, False)  # :HideBadCapture
-
+    for window in cur_windows:  # includes opened
         if window.focused:
-            with get_data(obs.obs_save_source(window.obs_source)) as data:
+            sceneitem = scene_window_sceneitems[cur_scene_name][window.id]
+            source: Source = obs.obs_sceneitem_get_source(sceneitem)
+            with get_data(obs.obs_save_source(source)) as data:
                 source_info = json.loads(obs.obs_data_get_json(data))
                 # OutputDebugString(f"LOADED: {source_info['settings']['window']}")
 
             # always true on first window activation since we left 'type' empty
-            # title doesn't change between e.g. tabs in PyCharm; doesn't break capture; flickering without when updating source
+            # title change won't affect the capture; flickers without this
             if source_info['settings']['window'].split(':')[1:] != window.obs_spec.split(':')[1:]:
                 # No documentation regarding 'settings' of obs_source_info; gleaned from '%AppData%\obs-studio\basic\scenes\Untitled.json'
                 # https://obsproject.com/docs/reference-sources.html#source-definition-structure-obs-source-info
@@ -192,12 +207,11 @@ def update_window_sceneitems() -> None:
                 source_info['settings']['priority'] = window.pattern.fallback  # won't ever change, just different than initial
                 with get_data(obs.obs_data_create_from_json(json.dumps(source_info['settings']))) as new_data:
                     # OutputDebugString(f"SAVING: {source_info['settings']['window']}")
-                    obs.obs_source_update(window.obs_source, new_data)
+                    obs.obs_source_update(source, new_data)
 
             # layer the window captures
-            obs.obs_sceneitem_set_order_position(window.obs_sceneitem, len(scene_windows[cur_scene_name]) - 1)
-            obs.obs_sceneitem_set_visible(window.obs_sceneitem, True)
-        scene_windows[cur_scene_name][window.id] = window
+            obs.obs_sceneitem_set_order_position(sceneitem, len(scene_window_sceneitems[cur_scene_name]) - 1)
+            obs.obs_sceneitem_set_visible(sceneitem, True)
 
 
 def print_debug(str_: str) -> None:
@@ -261,10 +275,10 @@ def scenes_loaded() -> None:
 
         group_scene: Scene = obs.obs_sceneitem_group_get_scene(group_sceneitem)
         wipe_group(group_sceneitem, group_scene)
-        scene_group[scene_name] = group_scene
+        scene_group[scene_name] = (group_sceneitem, group_scene)
 
-        obs.obs_sceneitem_set_locked(group_sceneitem, True)
         obs.obs_sceneitem_set_visible(group_sceneitem, False)
+        obs.obs_sceneitem_set_locked(group_sceneitem, True)
 
         # don't mess with bounding box! that can be customized through GUI to scale/move entire group
         # make sure position and size are correct
@@ -274,40 +288,38 @@ def scenes_loaded() -> None:
         obs.vec2_set(scale, 1, 1)
         obs.obs_sceneitem_set_scale(group_sceneitem, scale)  # sets 'size' which is critical
 
-        for window in windows.values():
-            create_in_obs(group_scene, window)
+        for window in windows:
+            create_in_obs(scene_name, window)
 
         obs.obs_sceneitem_set_visible(group_sceneitem, True)
 
     obs.timer_add(timer, 500)
 
 
-def create_in_obs(group_scene: Scene, window: OsWindow):
-    source_info = {'id': 'window_capture', 'name': f"{window.pattern.name} {window.id}", 'settings': {
-        # initialize window now for cosmetic text in OBS
-        # our /some_regex/ syntax is just plaintext to OBS so could accidentally capture :HideBadCapture
-        'window': f'{window.title}::{window.exe}',  # blank type to avoid initial capture :WaitOnCapture
+def create_in_obs(scene_name: str, window: OsWindow):
+    source_info = {'id': 'window_capture', 'name': str(window), 'settings': {
+        # title and exe for initial cosmetic name in OBS
+        'window': f'{window.title}::{window.exe}',  # blank type so as not to capture yet :AvoidBadCapture
         # auto seems to prefer wgc client-area, then full window?, then falls back on bitblt
         #  https://github.com/obsproject/obs-studio/blob/a45cb71f6e5c6410a0d7f950a0a6511b2b930817/plugins/win-capture/window-capture.c#L131
         'method': LoadedCaptureInfo.OBS_CAPTURE_METHOD[window.pattern.method],
         # poor name, more like fallback method when specific window disappears
         #  'title' will actually fallback to another window with identical title
-        'priority': LoadedCaptureInfo.OBS_CAPTURE_FALLBACK['type'],  # :WaitOnCapture
+        'priority': LoadedCaptureInfo.OBS_CAPTURE_FALLBACK['type'],  # :AvoidBadCapture
         'cursor': window.pattern.cursor,
         'client_area': window.pattern.client_area,
     }}
 
     with get_data(obs.obs_data_create_from_json(json.dumps(source_info))) as data:
         with get_source(obs.obs_load_source(data)) as source:
-            window.obs_source = source
+            _, group_scene = scene_group[scene_name]
             sceneitem: SceneItem = obs.obs_scene_add(group_scene, source)
+            scene_window_sceneitems[scene_name][window.id] = sceneitem
 
-    obs.obs_sceneitem_set_visible(sceneitem, False)  # :HideBadCapture
+    obs.obs_sceneitem_set_visible(sceneitem, False)
+    obs.obs_sceneitem_set_locked(sceneitem, True)
     obs.obs_sceneitem_set_pos(sceneitem, center)
     obs.obs_sceneitem_set_alignment(sceneitem, 0)  # OBS_ALIGN_CENTER
-    obs.obs_sceneitem_set_locked(sceneitem, True)
-
-    window.obs_sceneitem = sceneitem
 
 def init() -> None:
     global loaded, ahk, scene_patterns, scene_windows
@@ -318,14 +330,15 @@ def init() -> None:
     with data_path.open(encoding='utf-8') as f:
         loaded = yaml.safe_load(f)
 
+    # it's nice to do this here since we can debug it without OBS
     for scene_name, pattern_specs in loaded['scenes'].items():
-        for idx, (pattern_name, pattern_spec) in enumerate(pattern_specs.items()):
+        for pattern_name, pattern_spec in pattern_specs.items():
             if isinstance(pattern_spec, str):
                 pattern_spec = {'window': pattern_spec}
             pattern = LoadedCaptureInfo(pattern_name, **pattern_spec)
             scene_patterns[scene_name].append(pattern)
 
-        scene_windows[scene_name] = {window.id: window for window in OsWindow.get_windows(scene_name, from_cache=False)}
+        scene_windows[scene_name] = OsWindow.get_windows(scene_name, from_cache=False)
 
 
 # noinspection PyUnusedLocal
@@ -360,7 +373,7 @@ def script_unload() -> None:
         # avoids crash with 'Reload Scripts': 0xc0000409 (EXCEPTION_STACK_BUFFER_OVERRUN)
         #  possibly an OBS bug and not ahkUnwrapped... knock on wood
         #  https://devblogs.microsoft.com/oldnewthing/20190108-00/?p=100655
-        #  > "nowadays [...] doesn’t actually mean that there is a stack buffer overrun.
+        #  > "nowadays [...] doesn't actually mean that there is a stack buffer overrun.
         #  > [...] just means that the application decided to terminate itself with great haste."
         #  > Raymond Chen 2019-01-08
         time.sleep(0.01)  # 0.001 is too small, 0.005 seemed large enough
