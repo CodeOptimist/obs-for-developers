@@ -84,7 +84,7 @@ class LoadedCaptureInfo:
     cursor: bool = field(default=True)  # source_info[settings]['cursor']
     client_area: bool = field(default=False)  # source_info[settings]['client_area']
 
-    ahk_wintitle: str = field(init=False, default="")
+    ahk_wintitle: str = field(init=False)
 
     def __post_init__(self) -> None:
         title, class_, exe = self.window.split(':')
@@ -99,12 +99,14 @@ class LoadedCaptureInfo:
             result = result[1:-1] if is_re else re.escape(result)
             return result
 
+        self.ahk_wintitle = "^"
         if title:
             self.ahk_wintitle += to_ahk(title)
         if class_:
             self.ahk_wintitle += f" ahk_class {to_ahk(class_)}"
         if exe:
             self.ahk_wintitle += f" ahk_exe {to_ahk(exe)}"
+        self.ahk_wintitle += "$"
 
 
 @dataclass

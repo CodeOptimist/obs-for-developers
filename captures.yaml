@@ -1,34 +1,33 @@
-# a blank title will use `fallback: exe`, it's impossible to disable fallback so try to make titles as specific as possible
-# (this is because there could be a delay between fallback and the script removing the sceneitem)
+# a blank title will use `fallback: exe`; it's impossible to disable fallback so try to make titles as specific as possible
+# (this is because there could be a delay between capturing something unintended and the script removing the sceneitem)
 ---
 scene_pool:
   System: &system
     'Palette:': '/(Command Palette|Emoji Selector)/:AutoHotkeyGUI:AutoHotkey.exe'
-    'grepWin': '/grepWin #3A C#3A\\(Dropbox\\Python|Program Files \(x86\)\\Steam\\st...\\Data)/:#32770:grepWin.exe'
     'Vista': '/Windows Vista .* - Virtual Machine Connection/:WindowsForms10.Window.8.app.0.aa0c13_r6_ad1:vmconnect.exe'
     # capitalized version is when ran as Administrator
     'Process Explorer': ':PROCEXPL:/(procexp|PROCEXP)64\.exe/'
-    'Process Props': {window: ':#32770:procexp64.exe', method: bitblt}
+    'Process Explorer Child': {window: ':#32770:/(procexp|PROCEXP)64.exe/', method: bitblt}
     'Stream': ':Chrome_WidgetWin_1:stream.exe'
-  PyCharm: &pycharm
+  'Dev': &dev
     'PyCharm': '/.*\b(obs|ahkUnwrapped|rimworld-mod-description-tool|command-palette|emoji-selector)\b.*/:SunAwtFrame:pycharm64.exe'
+    'PyCharm Child': {window: ':SunAwtDialog:pycharm64.exe', method: bitblt}
+    'dnSpy': 'dnSpy\b.*::dnSpy.exe'
+    'dnSpy Child': {window: '::dnSpy.exe', method: bitblt}
+    'DebugView': '::DebugView++.exe'
+  #    'Visual Studio Code': '/.* - Visual Studio Code/:Chrome_WidgetWin_1:Code.exe'
   'Sourcetree': &sourcetree
     'Sourcetree': '::SourceTree.exe'
-#    'MINGW32': '/MINGW32#3A.*/Dropbox/.*/:mintty:mintty.exe'
-#    'Beyond Compare': '/(.* <--> .*|Text Compare|Text Merge) - Beyond Compare/:TViewForm:BCompare.exe'
-  'Dev': &dev
-    'dnSpy': '::dnSpy.exe'
-#    'dnSpy IL': {window: '/Edit Method Body\b.*/::dnSpy.exe', method: bitblt}
-    'DebugView': '::DebugView++.exe'
-    'Visual Studio Code': '/.* - Visual Studio Code/:Chrome_WidgetWin_1:Code.exe'
+    'MINGW32': '/MINGW32#3A/c/Dropbox/.*/:mintty:mintty.exe'
+    'Beyond Compare': '/.*(\S+ <--> \S+|Text Compare|Text Merge) - Beyond Compare/:TViewForm:BCompare.exe'
   'RimWorld': &rw
     'RW Studio': 'RimMods - Microsoft Visual Studio::devenv.exe'
+    'RW grepWin': '/grepWin #3A C#3A\\Program Files \(x86\)\\Steam\\st...\\Data/:#32770:grepWin.exe'
     'RimWorld': {window: ':UnityWndClass:RimWorldWin64.exe', client_area: True}
-    'RimPy': '/RimPy Mod Manager .*/:Qt5152QWindowIcon:rimpy.exe'
+    'RimPy': '/RimPy Mod Manager\b.*/:Qt5152QWindowIcon:RimPy.exe'
 scenes:
   'Development':
     <<: *system
-    <<: *pycharm
-    <<: *sourcetree
     <<: *dev
+    <<: *sourcetree
     <<: *rw
