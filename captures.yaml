@@ -7,8 +7,8 @@ scene_pool:
     'grepWin': '/grepWin #3A C#3A\\(Dropbox\\Python|Program Files \(x86\)\\Steam\\st...\\Data)/:#32770:grepWin.exe'
     'Vista': '/Windows Vista .* - Virtual Machine Connection/:WindowsForms10.Window.8.app.0.aa0c13_r6_ad1:vmconnect.exe'
     # capitalized version is when ran as Administrator
-    'Process Explorer': {window: '/Process Explorer - Sysinternals.*/:PROCEXPL:/(procexp|PROCEXP)64\.exe/', priority: exe}
-    'Process Props': {window: '/.* Properties/:#32770:procexp64.exe', method: bitblt, priority: exe}
+    'Process Explorer': ':PROCEXPL:/(procexp|PROCEXP)64\.exe/'
+    'Process Props': {window: ':#32770:procexp64.exe', method: bitblt}
     'Stream': ':Chrome_WidgetWin_1:stream.exe'
   PyCharm: &pycharm
     'PyCharm': '/.*\b(obs|ahkUnwrapped|rimworld-mod-description-tool|command-palette|emoji-selector)\b.*/:SunAwtFrame:pycharm64.exe'

@@ -281,9 +281,9 @@ def scenes_loaded() -> None:
         obs.obs_sceneitem_set_locked(group_sceneitem, True)
 
         # don't mess with bounding box! that can be customized through GUI to scale/move entire group
-        # make sure position and size are correct
         obs.obs_sceneitem_set_pos(group_sceneitem, obs.vec2())  # x = 0, y = 0
         obs.obs_sceneitem_set_alignment(group_sceneitem, 0x1 | 0x4)  # OBS_ALIGN_LEFT | OBS_ALIGN_TOP
+        # you can't set the size, only scale
         scale: Vec2 = obs.vec2()
         obs.vec2_set(scale, 1, 1)
         obs.obs_sceneitem_set_scale(group_sceneitem, scale)  # sets 'size' which is critical
@@ -312,14 +312,27 @@ def create_in_obs(scene_name: str, window: OsWindow):
 
     with get_data(obs.obs_data_create_from_json(json.dumps(source_info))) as data:
         with get_source(obs.obs_load_source(data)) as source:
-            _, group_scene = scene_group[scene_name]
+            group_sceneitem, group_scene = scene_group[scene_name]
             sceneitem: SceneItem = obs.obs_scene_add(group_scene, source)
             scene_window_sceneitems[scene_name][window.id] = sceneitem
 
     obs.obs_sceneitem_set_visible(sceneitem, False)
     obs.obs_sceneitem_set_locked(sceneitem, True)
-    obs.obs_sceneitem_set_pos(sceneitem, center)
+
+    group_pos: Vec2 = obs.vec2()
+    obs.obs_sceneitem_get_pos(group_sceneitem, group_pos)
+
+    new_pos: Vec2 = obs.vec2()
+    # if you look at a small window's sceneitem position (Ctrl+E, or Transform -> Edit Transform...)
+    # you'll see the position is not absolute coordinates: it will give different values if you hide larger sceneitems
+    # seems to depend on the group's size, and you can't set size, only scale
+    # (group's size will be the same as the largest visible sceneitem)
+    # thus we have to correct by these shifting group position coordinates to get back to true center
+    # problem shows up when a opening a non-full-size window with only other non-full-size sceneitems visible
+    obs.vec2_set(new_pos, center.x - group_pos.x, center.y - group_pos.y)
+
     obs.obs_sceneitem_set_alignment(sceneitem, 0)  # OBS_ALIGN_CENTER
+    obs.obs_sceneitem_set_pos(sceneitem, new_pos)
 
 def init() -> None:
     global loaded, ahk, scene_patterns, scene_windows
