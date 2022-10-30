@@ -185,7 +185,7 @@ def update_window_sceneitems() -> None:
             if source_info['settings']['window'].split(':')[1:] != window.obs_spec.split(':')[1:]:
                 # No documentation regarding 'settings' of obs_source_info; gleaned from '%AppData%\obs-studio\basic\scenes\Untitled.json'
                 # https://obsproject.com/docs/reference-sources.html#source-definition-structure-obs-source-info
-                print(f"Updating source to {window.obs_spec}")
+                print_debug(f"Updating '{source_info['name']}' to '{window.obs_spec}'")
                 source_info['settings']['window'] = window.obs_spec
                 source_info['settings']['priority'] = window.pattern.fallback  # won't ever change, just different than initial
                 with get_data(obs.obs_data_create_from_json(json.dumps(source_info['settings']))) as new_data:
@@ -198,6 +198,11 @@ def update_window_sceneitems() -> None:
         scene_windows[cur_scene_name][window.id] = window
 
 
+def print_debug(str_: str) -> None:
+    print(str_)
+    OutputDebugString(str_)
+
+
 def log(func: Callable) -> Callable:
     # noinspection PyMissingTypeHints
     def wrapper(*args, **kwargs):
@@ -205,7 +210,7 @@ def log(func: Callable) -> Callable:
         before: int = obs.bnum_allocs()
         result = func(*args, **kwargs)
         after: int = obs.bnum_allocs()
-        print(f"{datetime.now().strftime('%I:%M:%S:%f')} {before} {func.__name__}() {after}")
+        print_debug(f"{datetime.now().strftime('%I:%M:%S:%f')} {before} {func.__name__}() {after}")
         return result
 
     return wrapper
