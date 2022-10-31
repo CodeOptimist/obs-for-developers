@@ -3,6 +3,7 @@
 # https://obsproject.com/docs/reference-core.html
 # https://obsproject.com/docs/reference-scenes.html
 # https://obsproject.com/docs/reference-sources.html
+
 import json
 import re
 
@@ -79,12 +80,41 @@ window_sceneitems: Dict[str, Dict[str, SceneItemWindow]] = defaultdict(defaultdi
 video_info: VideoInfo
 
 
-def init() -> None:
-    global loaded
-    # don't use os.chdir() or it will break OBS
-    data_path = Path(r'C:\Dropbox\Python\obs\captures.yaml')
-    with data_path.open(encoding='utf-8') as f:
-        loaded = yaml.safe_load(f)
+def update_active_win_sources() -> None:
+    cur_scene_source: Source = obs.obs_frontend_get_current_scene()
+    # cur_scene: Scene = obs.obs_scene_from_source(cur_scene_source)
+    cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
+    obs.obs_source_release(cur_scene_source)
+    # print(f"Current scene: {cur_scene_name}")
+
+    windows = window_sceneitems.get(cur_scene_name, {})
+    for window_name, window_sceneitem in windows.items():
+        if ahk.f('WinActiveRegEx', window_sceneitem.win_title, window_sceneitem.is_re):
+            ahk.call('ActiveWinGet')
+            obs_spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), window_sceneitem.exe])
+
+            def update_source(source: Source, obs_spec: str, cond: Callable = None) -> None:
+                data: Data = obs.obs_save_source(source)
+                source_info = json.loads(obs.obs_data_get_json(data))
+                obs.obs_data_release(data)
+                if cond is None or cond(source_info):
+                    print(f"Updating source to {obs_spec}")
+                    source_info['settings']['window'] = obs_spec
+                    new_data: Data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
+                    obs.obs_source_update(source, new_data)
+                    obs.obs_data_release(new_data)
+
+            source: Source = obs.obs_sceneitem_get_source(window_sceneitem.sceneitem)
+            update_source(source, obs_spec, cond=lambda source_info: source_info['settings']['window'] != obs_spec)
+
+            # todo AHK can't detect minimized & restore, crap https://autohotkey.com/board/topic/94409-detect-minimized-windows/
+            state = ahk.get('state')
+            if state != (window_sceneitem.state or state):
+                obs.timer_add(lambda: update_source(source, obs_spec) or obs.remove_current_callback(), 2500)
+            window_sceneitem.state = state
+
+            window_sceneitem.center()
+            obs.obs_sceneitem_set_order_position(window_sceneitem.sceneitem, len(windows) - 1)
 
 
 def log(func: Callable) -> Callable:
@@ -98,67 +128,20 @@ def log(func: Callable) -> Callable:
     return wrapper
 
 
-def update_source(source: Source, obs_spec: str, cond: Callable = None) -> None:
-    data: Data = obs.obs_save_source(source)
-    source_info = json.loads(obs.obs_data_get_json(data))
-    obs.obs_data_release(data)
-    if cond is None or cond(source_info):
-        print(f"Updating source to {obs_spec}")
-        source_info['settings']['window'] = obs_spec
-        new_data: Data = obs.obs_data_create_from_json(json.dumps(source_info['settings']))
-        obs.obs_source_update(source, new_data)
-        obs.obs_data_release(new_data)
-
-
-def timer() -> None:
-    try:
-        update_active_win_sources()
-    except Exception:
-        obs.remove_current_callback()
-        raise
-
-
-def update_active_win_sources() -> None:
-    cur_scene_source: Source = obs.obs_frontend_get_current_scene()
-    # cur_scene: Scene = obs.obs_scene_from_source(cur_scene_source)
-    cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
-    obs.obs_source_release(cur_scene_source)
-    # print(f"Current scene: {cur_scene_name}")
-
-    windows = window_sceneitems.get(cur_scene_name, {})
-    for window_name, window_sceneitem in windows.items():
-        if ahk.f('WinActiveRegEx', window_sceneitem.win_title, window_sceneitem.is_re):
-            source: Source = obs.obs_sceneitem_get_source(window_sceneitem.sceneitem)
-
-            ahk.call('ActiveWinGet')
-            obs_spec = ":".join([(ahk.get('title').replace(':', '#3A')), ahk.get('class'), window_sceneitem.exe])
-            update_source(source, obs_spec, cond=lambda source_info: source_info['settings']['window'] != obs_spec)
-
-            # todo AHK can't detect minimized & restore, crap https://autohotkey.com/board/topic/94409-detect-minimized-windows/
-            state = ahk.get('state')
-            if state != (window_sceneitem.state or state):
-                obs.timer_add(lambda: update_source(source, obs_spec) or obs.remove_current_callback(), 2500)
-            window_sceneitem.state = state
-
-            window_sceneitem.center()
-            obs.obs_sceneitem_set_order_position(window_sceneitem.sceneitem, len(windows) - 1)
-
-
-def get_scene_by_name(scene_name: str) -> Optional[Scene]:
-    sources = ()
-    try:
-        sources: Iterable[Source] = obs.obs_frontend_get_scenes()
-        for source in sources:
-            name: str = obs.obs_source_get_name(source)
-            if name == scene_name:
-                return obs.obs_scene_from_source(source)
-        return None
-    finally:
-        obs.source_list_release(sources)
-
-
 @log
 def scenes_loaded() -> None:
+    def get_scene_by_name(scene_name: str) -> Optional[Scene]:
+        sources = ()
+        try:
+            sources: Iterable[Source] = obs.obs_frontend_get_scenes()
+            for source in sources:
+                name: str = obs.obs_source_get_name(source)
+                if name == scene_name:
+                    return obs.obs_scene_from_source(source)
+            return None
+        finally:
+            obs.source_list_release(sources)
+
     global_scene = get_scene_by_name("Global")
     global_sceneitems: Iterable[SceneItem] = obs.obs_scene_enum_items(global_scene)
     global_count = sum(1 for _ in global_sceneitems)
@@ -206,7 +189,22 @@ def scenes_loaded() -> None:
         if creating_scene:
             obs.obs_scene_release(scene)
 
+    def timer() -> None:
+        try:
+            update_active_win_sources()
+        except Exception:
+            obs.remove_current_callback()
+            raise
+
     obs.timer_add(timer, 50)
+
+
+def init() -> None:
+    global loaded
+    # don't use os.chdir() or it will break OBS
+    data_path = Path(r'C:\Dropbox\Python\obs\captures.yaml')
+    with data_path.open(encoding='utf-8') as f:
+        loaded = yaml.safe_load(f)
 
 
 @log
