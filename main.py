@@ -29,6 +29,10 @@ from typing import Dict, NewType, Optional, Callable
 from collections import defaultdict
 from contextlib import contextmanager
 
+# todo make this an OBS script property
+# https://obsproject.com/wiki/Getting-Started-With-OBS-Scripting#global-script-functions-for-editable-properties
+# https://obsproject.com/docs/reference-properties.html#c.obs_properties_create
+POLL_INTERVAL_MS = 250  # Script execution is "blocking", so polling too quickly can overload the video encoder.
 
 class VideoInfo(NamedTuple):
     # and many more
@@ -299,7 +303,7 @@ def scenes_loaded() -> None:
 
         obs.obs_sceneitem_set_visible(group_sceneitem, True)
 
-    obs.timer_add(timer, 500)
+    obs.timer_add(timer, POLL_INTERVAL_MS)
 
 
 def create_in_obs(scene_name: str, group_sceneitem: SceneItem, group_scene: Scene, window: OsWindow):
