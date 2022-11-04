@@ -6,19 +6,6 @@ AutoExec() {
     SetBatchLines, -1
 }
 
-WinGetWH(wintitle) {
-    global
-    WinGetPos, _, _, w, h, % wintitle
-    return w != ""
-}
-
-GetMatchWinTitle(wintitle) {
-    global
-    WinGetTitle, title, % wintitle
-    WinGetClass, class, % wintitle
-    WinGet, exe, ProcessName, % wintitle
-}
-
 GetWindowsCached() {
     global windows
     SetTimer, GetWindows, -0

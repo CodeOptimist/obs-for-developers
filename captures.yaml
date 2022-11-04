@@ -1,33 +1,51 @@
-# a blank title will use `fallback: exe`; it's impossible to disable fallback so try to make titles as specific as possible
+# window patterns are in the format `title:class:exe` and case-sensitive (see 'fallback' below); at least one must be non-blank
+# surround any with forward slashes to denote regular expressions
+# regular expressions match exactly, so use `.*` for wildcard match at beginning/end, likely with `\b` word boundary
+
+# a blank title will use `fallback: exe`; default is `fallback: title`
+# fallback occurs when OBS's capture fails so it attempts to rematch a different window
+# this can't be disabled (at least as of OBS 28.0.3) so fallback with an uncommon title is often the safest option
 # (this is because there could be a delay between capturing something unintended and the script removing the sceneitem)
+
 ---
 scene_pool:
   System: &system
     'Palette:': '/(Command Palette|Emoji Selector)/:AutoHotkeyGUI:AutoHotkey.exe'
-    'Vista': '/Windows Vista .* - Virtual Machine Connection/:WindowsForms10.Window.8.app.0.aa0c13_r6_ad1:vmconnect.exe'
+    Vista: '/Windows Vista .* - Virtual Machine Connection/:WindowsForms10.Window.8.app.0.aa0c13_r6_ad1:vmconnect.exe'
     # capitalized version is when ran as Administrator
-    'Process Explorer': ':PROCEXPL:/(procexp|PROCEXP)64\.exe/'
-    'Process Explorer Child': {window: ':#32770:/(procexp|PROCEXP)64.exe/', method: bitblt}
-    'Stream': ':Chrome_WidgetWin_1:stream.exe'
-  'Dev': &dev
-    'PyCharm': '/.*\b(obs|ahkUnwrapped|rimworld-mod-description-tool|command-palette|emoji-selector)\b.*/:SunAwtFrame:pycharm64.exe'
-    'PyCharm Child': {window: ':SunAwtDialog:pycharm64.exe', method: bitblt}
-    'dnSpy': 'dnSpy\b.*::dnSpy.exe'
-    'dnSpy Child': {window: '::dnSpy.exe', method: bitblt}
-    'DebugView': '::DebugView++.exe'
-  #    'Visual Studio Code': '/.* - Visual Studio Code/:Chrome_WidgetWin_1:Code.exe'
-  'Sourcetree': &sourcetree
-    'Sourcetree': '::SourceTree.exe'
-    'MINGW32': '/MINGW32#3A/c/Dropbox/.*/:mintty:mintty.exe'
-    'Beyond Compare': '/.*(\S+ <--> \S+|Text Compare|Text Merge) - Beyond Compare/:TViewForm:BCompare.exe'
-  'RimWorld': &rw
-    'RW Studio': 'RimMods - Microsoft Visual Studio::devenv.exe'
-    'RW grepWin': '/grepWin #3A C#3A\\Program Files \(x86\)\\Steam\\st...\\Data/:#32770:grepWin.exe'
-    'RimWorld': {window: ':UnityWndClass:RimWorldWin64.exe', client_area: True}
-    'RimPy': '/RimPy Mod Manager\b.*/:Qt5152QWindowIcon:RimPy.exe'
+    Process Explorer: ':PROCEXPL:/(procexp|PROCEXP)64\.exe/'
+    # could easily combine with above, but I prefer `method: wgc` (default) when it works
+    Process Explorer Child: {window: ':#32770:/(procexp|PROCEXP)64.exe/', method: bitblt}
+    Stream: ':Chrome_WidgetWin_1:stream.exe'
+  Audio: &audio
+    Soundtrack: 'Twitch Soundtrack:Chrome_WidgetWin_1:TwitchSoundtrackUI.exe'
+    VoiceMeeter: 'VoiceMeeter:VBCABLE0Voicemeeter0MainWindow0:voicemeeter8x64.exe'
+    ShurePlus MOTIV: 'ShurePlus MOTIV:Chrome_WidgetWin_1:ShurePlus MOTIV.exe'
+    Cantabile: 'Cantabile Lite (x64) - Cantabile:#32770:Cantabile.exe'
+    Cantabile Child: {window: ':#32770:Cantabile.exe', method: bitblt}
+  Dev: &dev
+    PyCharm: '/.*\b(obs-for-developers|ahkUnwrapped|rimworld-mod-description-tool|command-palette|emoji-selector)\b.*/:SunAwtFrame:pycharm64.exe'
+    PyCharm Child: {window: ':SunAwtDialog:pycharm64.exe', method: bitblt}
+    # order matters, this will match before the blank title beneath it, therefore using `method: wgc` for the main window
+    dnSpy: 'dnSpy\b.*::dnSpy.exe'
+    dnSpy Child: {window: '::dnSpy.exe', method: bitblt}
+    DebugView: '::DebugView++.exe'
+#    Visual Studio Code: '/.* - Visual Studio Code/:Chrome_WidgetWin_1:Code.exe'
+  Sourcetree: &sourcetree
+    Sourcetree: '::SourceTree.exe'
+    MINGW32: '/MINGW32#3A/c/Dropbox/.*/:mintty:mintty.exe'
+    Beyond Compare: '/.*(\S+ <--> \S+|Text Compare|Text Merge) - Beyond Compare/:TViewForm:BCompare.exe'
+  RimWorld: &rw
+    RW Studio: 'RimMods - Microsoft Visual Studio::devenv.exe'
+    RW grepWin: '/grepWin #3A C#3A\\Program Files \(x86\)\\Steam\\st...\\Data/:#32770:grepWin.exe'
+    RimWorld: {window: ':UnityWndClass:RimWorldWin64.exe', client_area: True}
+    RimPy: '/RimPy Mod Manager\b.*/:Qt5152QWindowIcon:RimPy.exe'
+
+# only this section is used, the above is just to ease organization
 scenes:
-  'Development':
+  Development:
     <<: *system
+#    <<: *audio
     <<: *dev
     <<: *sourcetree
     <<: *rw

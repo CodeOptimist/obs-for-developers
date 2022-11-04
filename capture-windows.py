@@ -1,3 +1,4 @@
+# Copyright (C) 2022  Christopher S. Galpin.  Licensed under AGPL-3.0-or-later.  See /NOTICE.
 # todo re-use existing Source for Window sceneitems in completely different scenes?
 # https://obsproject.com/docs/scripting.html
 # https://obsproject.com/docs/reference-frontend-api.html
@@ -345,10 +346,10 @@ def create_in_obs(scene_name: str, group_sceneitem: SceneItem, group_scene: Scen
 
 def init() -> None:
     global loaded, ahk, scene_patterns, scene_windows
-    ahk = Script.from_file(Path(r'C:\Dropbox\Python\obs\script.ahk'))
+    ahk = Script.from_file(Path(__file__).parent / r'capture-windows.ahk')
 
     # don't use os.chdir() or it will break OBS
-    data_path = Path(r'C:\Dropbox\Python\obs\captures.yaml')
+    data_path = Path(__file__).parent / r'captures.yaml'
     with data_path.open(encoding='utf-8') as f:
         loaded = yaml.safe_load(f)
 
@@ -402,7 +403,12 @@ def script_unload() -> None:
 
 
 def script_description() -> str:
-    return "Powered by ahkUnwrapped."
+    return """
+‘Window Capture’ for Developers v1.0.0
+github.com/CodeOptimist/obs-for-developers
+
+If you find this program useful, I'd love to hear about it! 💗 twitch.tv/CodeOptimist
+"""
 
 
 if __name__ == '__main__':
