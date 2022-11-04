@@ -1,4 +1,3 @@
-# todo deleting 'Windows' group = crash
 # todo re-use existing Source for Window sceneitems in completely different scenes?
 # https://obsproject.com/docs/scripting.html
 # https://obsproject.com/docs/reference-frontend-api.html
@@ -160,17 +159,18 @@ scene_patterns: Dict[str, List[LoadedCaptureInfo]] = defaultdict(list)  # user d
 scene_windows: Dict[str, Set[OsWindow]] = defaultdict(set)  # os data
 
 # obs data
-scene_group: Dict[str, Tuple[SceneItem, Scene]] = {}
+name_scenes: Dict[str, Scene] = defaultdict()
 scene_window_sceneitems: Dict[str, Dict[str, SceneItem]] = defaultdict(dict)
 
 
 def update_window_sceneitems() -> None:
     with get_source(obs.obs_frontend_get_current_scene()) as cur_scene_source:
-        cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)
+        cur_scene_name: str = obs.obs_source_get_name(cur_scene_source)  # None if given None
 
-    group_sceneitem, _ = scene_group.get(cur_scene_name) or (None, None)
+    group_sceneitem: SceneItem = obs.obs_scene_get_group(name_scenes.get(cur_scene_name), "Windows")  # None if scene is None
     if group_sceneitem is None:
         return
+    group_scene: Optional[Scene] = None
 
     last_windows = scene_windows[cur_scene_name]
     # ahkUnwrapped itself is <1ms but `ahk.f('WinActive', f"ahk_id {match.id}")` takes 30ms; much too slow (blocks encoding)
@@ -189,12 +189,15 @@ def update_window_sceneitems() -> None:
         sceneitem = scene_window_sceneitems[cur_scene_name].get(opened_window.id)
         if sceneitem is None:
             print_debug(f"Creating '{opened_window}'")
-            create_in_obs(cur_scene_name, opened_window)
+            if group_scene is None:
+                group_scene: Scene = obs.obs_sceneitem_group_get_scene(group_sceneitem)
+            create_in_obs(cur_scene_name, group_sceneitem, group_scene, opened_window)
 
     for window in cur_windows:  # includes opened
         if window.focused:
             sceneitem = scene_window_sceneitems[cur_scene_name][window.id]
             source: Source = obs.obs_sceneitem_get_source(sceneitem)
+
             with get_data(obs.obs_save_source(source)) as data:
                 source_info = json.loads(obs.obs_data_get_json(data))
                 # OutputDebugString(f"LOADED: {source_info['settings']['window']}")
@@ -207,6 +210,7 @@ def update_window_sceneitems() -> None:
                 print_debug(f"Updating '{source_info['name']}' to '{window.obs_spec}'")
                 source_info['settings']['window'] = window.obs_spec
                 source_info['settings']['priority'] = window.pattern.fallback  # won't ever change, just different than initial
+
                 with get_data(obs.obs_data_create_from_json(json.dumps(source_info['settings']))) as new_data:
                     # OutputDebugString(f"SAVING: {source_info['settings']['window']}")
                     obs.obs_source_update(source, new_data)
@@ -248,7 +252,7 @@ def timer() -> None:
 
 @log
 def scenes_loaded() -> None:
-    global scene_group
+    global name_scenes
 
     # noinspection PyShadowingNames
     def get_scene_by_name(scene_name: str) -> Optional[Scene]:
@@ -264,6 +268,8 @@ def scenes_loaded() -> None:
         group_sceneitem: SceneItem = obs.obs_scene_get_group(scene, "Windows")  # None if scene is None
         if group_sceneitem is None:
             continue
+        name_scenes[scene_name] = scene
+        group_scene: Scene = obs.obs_sceneitem_group_get_scene(group_sceneitem)
 
         # noinspection PyShadowingNames
         @log
@@ -275,9 +281,7 @@ def scenes_loaded() -> None:
                     source: Source = obs.obs_sceneitem_get_source(sceneitem)
                     obs.obs_source_remove(source)  # notifies reference holders to release
 
-        group_scene: Scene = obs.obs_sceneitem_group_get_scene(group_sceneitem)
         wipe_group(group_sceneitem, group_scene)
-        scene_group[scene_name] = (group_sceneitem, group_scene)
 
         obs.obs_sceneitem_set_visible(group_sceneitem, False)
         obs.obs_sceneitem_set_locked(group_sceneitem, True)
@@ -291,14 +295,14 @@ def scenes_loaded() -> None:
         obs.obs_sceneitem_set_scale(group_sceneitem, scale)  # sets 'size' which is critical
 
         for window in windows:
-            create_in_obs(scene_name, window)
+            create_in_obs(scene_name, group_sceneitem, group_scene, window)
 
         obs.obs_sceneitem_set_visible(group_sceneitem, True)
 
     obs.timer_add(timer, 500)
 
 
-def create_in_obs(scene_name: str, window: OsWindow):
+def create_in_obs(scene_name: str, group_sceneitem: SceneItem, group_scene: Scene, window: OsWindow):
     source_info = {'id': 'window_capture', 'name': str(window), 'settings': {
         # title and exe for initial cosmetic name in OBS
         'window': f'{window.title}::{window.exe}',  # blank type so as not to capture yet :AvoidBadCapture
@@ -314,7 +318,6 @@ def create_in_obs(scene_name: str, window: OsWindow):
 
     with get_data(obs.obs_data_create_from_json(json.dumps(source_info))) as data:
         with get_source(obs.obs_load_source(data)) as source:
-            group_sceneitem, group_scene = scene_group[scene_name]
             sceneitem: SceneItem = obs.obs_scene_add(group_scene, source)
             scene_window_sceneitems[scene_name][window.id] = sceneitem
 
